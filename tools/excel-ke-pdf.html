@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Ubah workbook Excel atau CSV menjadi PDF sederhana yang rapi langsung di browser.">
+<title>Excel → PDF — Indonesia Utility Tools</title>
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<header class="site-header"><div class="container nav">
+<a class="brand" href="../index.html"><span class="brand-mark">IU</span><span>INDONESIA<br><b>UTILITY TOOLS</b></span></a>
+<nav><a href="../index.html#categories">Kategori</a><a href="../index.html#popular">Populer</a><a href="../about.html">Tentang</a></nav>
+</div></header>
+<main class="tool-page"><div class="container tool-shell">
+<a class="back" href="../index.html">← Kembali ke semua tools</a>
+<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>Excel → PDF</h1><p>Ubah workbook Excel atau CSV menjadi PDF sederhana yang rapi langsung di browser.</p></div>
+<div class="calculator-card">
+<div class="field"><label>Pilih file Excel / CSV</label><input id="file" type="file" accept=".xlsx,.xls,.csv"></div>
+<div id="info" class="result"><div class="note">Pilih file untuk melihat preview.</div></div>
+<button class="calc-btn" id="convert">Export PDF</button>
+</div>
+<div class="tool-content"><h2>Catatan</h2><p>File diproses langsung di browser pada versi ini. Untuk hasil terbaik, gunakan dokumen digital yang tidak terenkripsi atau diproteksi password.</p></div>
+</div></main>
+<footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+let workbook=null;
+document.getElementById('file').addEventListener('change',async e=>{
+ const f=e.target.files[0]; if(!f)return; const data=await f.arrayBuffer();
+ workbook=XLSX.read(data,{type:'array'}); const sheet=workbook.Sheets[workbook.SheetNames[0]];
+ const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''}).slice(0,8);
+ document.getElementById('info').innerHTML='<div class="big">'+esc(f.name)+'</div><div class="note">'+workbook.SheetNames.length+' sheet(s). Preview: '+rows.length+' baris pertama.</div>';
+});
+document.getElementById('convert').addEventListener('click',()=>{
+ if(!workbook){alert('Pilih file Excel terlebih dahulu.');return;}
+ const {jsPDF}=window.jspdf, pdf=new jsPDF({unit:'mm',format:'a4',orientation:'l'}), margin=10, pageW=297, pageH=210;
+ workbook.SheetNames.forEach((name,si)=>{
+   if(si) pdf.addPage('a4','l');
+   const rows=XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,defval:''});
+   pdf.setFontSize(14); pdf.text(String(name).slice(0,55),margin,12);
+   let y=20; const maxCols=Math.min(rows.reduce((m,r)=>Math.max(m,r.length),0),10); const colW=(pageW-2*margin)/Math.max(maxCols,1);
+   pdf.setFontSize(7);
+   rows.forEach((row,ri)=>{
+     if(y>pageH-10){pdf.addPage('a4','l');y=12;pdf.setFontSize(7);}
+     for(let c=0;c<maxCols;c++){const txt=String(row[c]??'').replace(/\s+/g,' ').slice(0,34);pdf.rect(margin+c*colW,y-5,colW,7);pdf.text(txt,margin+c*colW+1,y, {maxWidth:colW-2});}
+     y+=7;
+   });
+ });
+ pdf.save('excel-ke-pdf.pdf');
+});
+function esc(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+</script>
+</body></html>

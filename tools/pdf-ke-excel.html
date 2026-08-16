@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Ekstrak teks dari PDF menjadi workbook Excel langsung di browser. Cocok untuk PDF digital berbasis teks.">
+<title>PDF → Excel — Indonesia Utility Tools</title>
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<header class="site-header"><div class="container nav">
+<a class="brand" href="../index.html"><span class="brand-mark">IU</span><span>INDONESIA<br><b>UTILITY TOOLS</b></span></a>
+<nav><a href="../index.html#categories">Kategori</a><a href="../index.html#popular">Populer</a><a href="../about.html">Tentang</a></nav>
+</div></header>
+<main class="tool-page"><div class="container tool-shell">
+<a class="back" href="../index.html">← Kembali ke semua tools</a>
+<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF → Excel</h1><p>Ekstrak teks dari PDF menjadi workbook Excel langsung di browser. Cocok untuk PDF digital berbasis teks.</p></div>
+<div class="calculator-card">
+<div class="field"><label>Pilih PDF</label><input id="file" type="file" accept="application/pdf"></div>
+<div id="info" class="result"><div class="note">PDF scan/foto memerlukan OCR dan belum didukung di V1.1.</div></div>
+<button class="calc-btn" id="convert">Export Excel</button>
+</div>
+<div class="tool-content"><h2>Catatan</h2><p>File diproses langsung di browser pada versi ini. Untuk hasil terbaik, gunakan dokumen digital yang tidak terenkripsi atau diproteksi password.</p></div>
+</div></main>
+<footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script>
+let extracted=[];
+document.getElementById('file').addEventListener('change',async e=>{
+ const f=e.target.files[0];if(!f)return; extracted=[]; const pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;
+ for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const c=await page.getTextContent();const text=c.items.map(x=>x.str).join(' ').trim();extracted.push([p,text]);}
+ document.getElementById('info').innerHTML='<div class="big">'+pdf.numPages+' halaman</div><div class="note">Teks berhasil diekstrak. Klik Export Excel.</div>';
+});
+document.getElementById('convert').addEventListener('click',()=>{
+ if(!extracted.length){alert('Pilih PDF terlebih dahulu.');return;}
+ const ws=XLSX.utils.aoa_to_sheet([['Halaman','Teks'],...extracted]); const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'PDF Text');XLSX.writeFile(wb,'pdf-ke-excel.xlsx');
+});
+</script>
+</body></html>

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Ubah dokumen DOCX menjadi PDF sederhana langsung di browser.">
+<title>Word → PDF — Indonesia Utility Tools</title>
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<header class="site-header"><div class="container nav">
+<a class="brand" href="../index.html"><span class="brand-mark">IU</span><span>INDONESIA<br><b>UTILITY TOOLS</b></span></a>
+<nav><a href="../index.html#categories">Kategori</a><a href="../index.html#popular">Populer</a><a href="../about.html">Tentang</a></nav>
+</div></header>
+<main class="tool-page"><div class="container tool-shell">
+<a class="back" href="../index.html">← Kembali ke semua tools</a>
+<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>Word → PDF</h1><p>Ubah dokumen DOCX menjadi PDF sederhana langsung di browser.</p></div>
+<div class="calculator-card">
+<div class="field"><label>Pilih dokumen Word (.docx)</label><input id="file" type="file" accept=".docx"></div>
+<div id="info" class="result"><div class="note">Pilih file DOCX untuk membaca isinya.</div></div>
+<button class="calc-btn" id="convert">Export PDF</button>
+</div>
+<div class="tool-content"><h2>Catatan</h2><p>File diproses langsung di browser pada versi ini. Untuk hasil terbaik, gunakan dokumen digital yang tidak terenkripsi atau diproteksi password.</p></div>
+</div></main>
+<footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+let docHtml='';
+document.getElementById('file').addEventListener('change',async e=>{
+ const f=e.target.files[0]; if(!f)return;
+ try{const r=await mammoth.convertToHtml({arrayBuffer:await f.arrayBuffer()});docHtml=r.value;
+ document.getElementById('info').innerHTML='<div class="big">'+f.name+'</div><div class="note">Dokumen berhasil dibaca. Klik Export PDF.</div>';}
+ catch(err){document.getElementById('info').innerHTML='<div class="note">DOCX tidak dapat dibaca.</div>';}
+});
+document.getElementById('convert').addEventListener('click',()=>{
+ if(!docHtml){alert('Pilih file DOCX terlebih dahulu.');return;}
+ const {jsPDF}=window.jspdf,pdf=new jsPDF({unit:'mm',format:'a4'}),margin=15,maxW=180; pdf.setFont('helvetica','normal');pdf.setFontSize(10);
+ const temp=document.createElement('div');temp.innerHTML=docHtml; const text=temp.innerText||'';
+ let y=18; for(const para of text.split(/\n+/)){const lines=pdf.splitTextToSize(para.trim(),maxW);for(const line of lines){if(y>280){pdf.addPage();y=18;}pdf.text(line,margin,y);y+=5;}y+=2;}
+ pdf.save('word-ke-pdf.pdf');
+});
+</script>
+</body></html>
