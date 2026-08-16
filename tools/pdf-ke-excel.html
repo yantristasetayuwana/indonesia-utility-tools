@@ -16,6 +16,7 @@
 <div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF → Excel</h1><p>Ekstrak PDF digital menjadi Excel menggunakan Smart Conversion Engine yang mendeteksi header, posisi kolom, baris data, dan meneruskan struktur tabel antar halaman.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih PDF</label><input id="file" type="file" accept="application/pdf"></div>
+<div class="field"><label><input id="ocr" type="checkbox"> Aktifkan OCR untuk scan/foto PDF (otomatis jika struktur text tidak terbaca)</label></div>
 <div id="info" class="result"><div class="note">Gunakan PDF digital/text-based untuk hasil terbaik. PDF scan/foto membutuhkan OCR.</div></div>
 <button class="calc-btn" id="convert">Export Excel</button>
 </div>
@@ -24,6 +25,7 @@
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="/assets/converter-engine.js"></script>
 <script>
 const pdfjs=window.pdfjsLib;
@@ -35,10 +37,10 @@ fileEl.addEventListener('change',async e=>{
  const f=e.target.files[0]; if(!f)return;
  info.innerHTML='<div class="note">Smart Engine membaca PDF, mencari header tabel, lalu membangun batas kolom otomatis…</div>'; extracted=null;
  try{
-   extracted=await IUConvert.extractPdf(pdfjs,f);
+   extracted=await IUConvert.extractPdf(pdfjs,f,{ocr:document.getElementById('ocr').checked,autoOcr:true,ocrLang:'eng',onOcrProgress:m=>{if(m.status==='recognizing text'&&m.progress) info.innerHTML='<div class="note">OCR sedang membaca halaman '+Math.round(m.progress*100)+'%…</div>';}});
    const t=IUConvert.flattenTable(extracted);
    const rows=t.rows.length, cols=t.headers.length;
-   info.innerHTML='<div class="big">'+extracted.pages.length+' halaman • '+rows+' baris • '+cols+' kolom</div><div class="note">'+(t.headers.length?t.headers.join(' • '):'Tabel tidak terdeteksi; gunakan Raw Text.')+'</div>';
+   info.innerHTML='<div class="big">'+extracted.pages.length+' halaman • '+rows+' baris • '+cols+' kolom</div><div class="note">'+(extracted.usedOcr?'OCR aktif • ':'')+(t.headers.length?t.headers.join(' • '):'Tabel belum terdeteksi; hasil Raw Text tetap disertakan.')+'</div>';
  }catch(err){info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}
 });
 btn.addEventListener('click',()=>{
@@ -51,9 +53,9 @@ btn.addEventListener('click',()=>{
  ws['!cols']=t.headers.map((h,i)=>({wch:Math.min(42,Math.max(10,Math.max(String(h).length,...t.rows.slice(0,200).map(r=>String(r[i]||'').length))*1.05))}));
  if(data.length) ws['!rows']=[{hpt:22}];
  XLSX.utils.book_append_sheet(wb,ws,'Converted Table');
- const raw=[['Halaman','Teks']]; extracted.pages.forEach(p=>p.rawLines.forEach(line=>raw.push([p.page,line])));
- const wr=XLSX.utils.aoa_to_sheet(raw); wr['!cols']=[{wch:10},{wch:120}]; XLSX.utils.book_append_sheet(wb,wr,'Raw Text');
- const diag=[['Metric','Value'],['Pages',extracted.pages.length],['Detected columns',t.headers.length],['Detected data rows',t.rows.length],['Engine','Smart Document Conversion Engine v1.3']];
+ const raw=[['Halaman','Mode','Teks']]; extracted.pages.forEach(p=>(p.ocrRawLines||p.rawLines||[]).forEach(line=>raw.push([p.page,p.mode,line])));
+ const wr=XLSX.utils.aoa_to_sheet(raw); wr['!cols']=[{wch:10},{wch:10},{wch:120}]; XLSX.utils.book_append_sheet(wb,wr,'Raw Text');
+ const diag=[['Metric','Value'],['Pages',extracted.pages.length],['Detected columns',t.headers.length],['Detected data rows',t.rows.length],['OCR used',extracted.usedOcr?'YES':'NO'],['Engine','Smart Document Conversion Engine v1.4 OCR']];
  const wd=XLSX.utils.aoa_to_sheet(diag); wd['!cols']=[{wch:24},{wch:55}]; XLSX.utils.book_append_sheet(wb,wd,'Diagnostics');
  XLSX.writeFile(wb,'pdf-ke-excel-smart.xlsx');
 });

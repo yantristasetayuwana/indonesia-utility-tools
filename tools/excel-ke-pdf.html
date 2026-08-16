@@ -19,7 +19,7 @@
 <div id="info" class="result"><div class="note">Pilih file untuk memuat workbook.</div></div>
 <button class="calc-btn" id="convert">Export PDF</button>
 </div>
-<div class="tool-content"><h2>Perbaikan V1.2</h2><ul><li>Lebar kolom dan teks panjang ditangani dengan wrapping.</li><li>Header tabel diulang pada halaman berikutnya.</li><li>Sheet berbeda dipisahkan dengan halaman baru.</li><li>Tabel yang sangat lebar dapat dibagi secara horizontal.</li></ul></div>
+<div class="tool-content"><h2>Smart Excel → PDF</h2><ul><li>Lebar kolom dan teks panjang ditangani dengan wrapping.</li><li>Header tabel diulang pada halaman berikutnya.</li><li>Sheet berbeda dipisahkan dengan halaman baru.</li><li>Tabel yang sangat lebar dapat dibagi secara horizontal.</li></ul></div>
 </div></main>
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"></script>
@@ -34,6 +34,19 @@ function sheetRows(ws){
  const width=rows.reduce((m,r)=>Math.max(m,r.length),0);
  return rows.map(r=>Array.from({length:width},(_,i)=>String(r[i]??'')));
 }
+function trimOuterBlankRows(rows){
+ let a=0,b=rows.length-1;
+ while(a<=b && rows[a].every(v=>!String(v).trim())) a++;
+ while(b>=a && rows[b].every(v=>!String(v).trim())) b--;
+ return rows.slice(a,b+1);
+}
+function findHeaderIndex(rows){
+ for(let i=0;i<Math.min(rows.length,20);i++){
+   const filled=rows[i].filter(v=>String(v).trim()).length;
+   if(filled>=2) return i;
+ }
+ return 0;
+}
 fileEl.addEventListener('change',async e=>{
  const f=e.target.files[0];if(!f)return;info.innerHTML='<div class="note">Membaca workbook dan menghitung lebar kolom…</div>';
  try{workbook=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const total=workbook.SheetNames.reduce((n,s)=>n+sheetRows(workbook.Sheets[s]).length,0);info.innerHTML='<div class="big">'+workbook.SheetNames.length+' sheet</div><div class="note">'+total+' baris siap dikonversi. Kolom lebar akan dibagi otomatis bila melebihi halaman.</div>';}catch(err){workbook=null;info.innerHTML='<div class="note">Gagal membaca file: '+esc(err.message||err)+'</div>';}
@@ -45,11 +58,11 @@ document.getElementById('convert').addEventListener('click',()=>{
  let pageNo=0;
  workbook.SheetNames.forEach((name,si)=>{
    if(si) pdf.addPage('a4','landscape');
-   const rows=sheetRows(workbook.Sheets[name]);
+   const rows=trimOuterBlankRows(sheetRows(workbook.Sheets[name]));
    if(!rows.length){pdf.setFontSize(12);pdf.text(String(name),8,12);return;}
    const maxCols=rows.reduce((m,r)=>Math.max(m,r.length),0);
    const normalized=rows.map(r=>Array.from({length:maxCols},(_,i)=>String(r[i]??'')));
-   const head=normalized[0]||[]; const body=normalized.slice(1);
+   const hi=findHeaderIndex(normalized); const head=normalized[hi]||[]; const body=normalized.slice(hi+1);
    const maxLens=Array.from({length:maxCols},(_,i)=>Math.max(String(head[i]||'').length,...body.slice(0,250).map(r=>String(r[i]||'').length)));
    const widths=maxLens.map(n=>Math.max(10,Math.min(45,5+n*1.65)));
    const totalWidth=widths.reduce((a,b)=>a+b,0), available=283;
@@ -63,7 +76,7 @@ document.getElementById('convert').addEventListener('click',()=>{
      styles:{font:'helvetica',fontSize,cellPadding:1.25,overflow:'linebreak',valign:'middle',lineWidth:.15},
      headStyles:{fontStyle:'bold',halign:'center',valign:'middle',cellPadding:1.5},
      bodyStyles:{valign:'middle'},columnStyles:colStyles,
-     horizontalPageBreak:true,horizontalPageBreakRepeat:0,
+     horizontalPageBreak:true,horizontalPageBreakRepeat:0,horizontalPageBreakBehaviour:'afterAllRows',
      didDrawPage:()=>{pageNo++;pdf.setFontSize(9);pdf.setTextColor(15,39,71);pdf.text(String(name).slice(0,90),7,10);pdf.setFontSize(7);pdf.setTextColor(100);pdf.text('Page '+pageNo,276,10);}
    });
  });

@@ -16,6 +16,7 @@
 <div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF → Word</h1><p>Konversi PDF digital menjadi DOCX dengan Smart Conversion Engine; tabel terdeteksi dibuat sebagai tabel Word editable, bukan sekadar teks acak.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih PDF</label><input id="file" type="file" accept="application/pdf"></div>
+<div class="field"><label><input id="ocr" type="checkbox"> Aktifkan OCR untuk scan/foto PDF (otomatis bila text layer tidak cukup)</label></div>
 <div id="info" class="result"><div class="note">PDF scan/foto membutuhkan OCR dan belum didukung.</div></div>
 <button class="calc-btn" id="convert">Export Word</button>
 </div>
@@ -24,6 +25,7 @@
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="/assets/converter-engine.js"></script>
 <script>
 const pdfjs=window.pdfjsLib;
@@ -32,7 +34,7 @@ let extracted=null; const fileEl=document.getElementById('file'), info=document.
 function esc(s){return String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 fileEl.addEventListener('change',async e=>{
  const f=e.target.files[0];if(!f)return;info.innerHTML='<div class="note">Smart Engine membaca struktur PDF…</div>';extracted=null;
- try{extracted=await IUConvert.extractPdf(pdfjs,f);const t=IUConvert.flattenTable(extracted);info.innerHTML='<div class="big">'+extracted.pages.length+' halaman • '+t.rows.length+' baris</div><div class="note">'+(t.headers.length?'Tabel terdeteksi dan akan dibuat sebagai tabel Word.':'Teks akan dibuat sebagai paragraf editable.')+'</div>';}
+ try{extracted=await IUConvert.extractPdf(pdfjs,f,{ocr:document.getElementById('ocr').checked,autoOcr:true,ocrLang:'eng',onOcrProgress:m=>{if(m.status==='recognizing text'&&m.progress) info.innerHTML='<div class="note">OCR membaca halaman: '+Math.round(m.progress*100)+'%…</div>';}});const t=IUConvert.flattenTable(extracted);info.innerHTML='<div class="big">'+extracted.pages.length+' halaman • '+t.rows.length+' baris</div><div class="note">'+(extracted.usedOcr?'OCR aktif • ':'')+(t.headers.length?'Tabel terdeteksi dan akan dibuat sebagai tabel Word editable.':'Teks akan dibuat sebagai paragraf editable.')+'</div>';}
  catch(err){info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}
 });
 document.getElementById('convert').addEventListener('click',async()=>{
@@ -52,7 +54,7 @@ document.getElementById('convert').addEventListener('click',async()=>{
       for(const line of p.rawLines){if(line) children.push(new Paragraph({children:[new TextRun({text:line,size:20})],spacing:{after:80}}));}
     }
   }
-  const doc=new Document({sections:[{properties:{page:{orientation:PageOrientation.LANDSCAPE}},children}]});
+  const doc=new Document({sections:[{properties:{page:{orientation:PageOrientation.LANDSCAPE,margin:{top:720,right:540,bottom:720,left:540}}},children}]});
   const blob=await Packer.toBlob(doc); const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='pdf-ke-word-smart.docx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
  }catch(err){alert('Gagal membuat Word: '+(err.message||err));}
 });
