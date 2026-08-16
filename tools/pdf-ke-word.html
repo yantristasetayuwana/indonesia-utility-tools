@@ -2,9 +2,9 @@
 <html lang="id">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Konversi PDF digital menjadi Word dengan tabel terstruktur dan teks yang rapi.">
+<meta name="description" content="Konversi PDF digital menjadi dokumen Word dengan susunan teks per baris.">
 <title>PDF → Word — Indonesia Utility Tools</title>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
 <header class="site-header"><div class="container nav">
@@ -13,79 +13,47 @@
 </div></header>
 <main class="tool-page"><div class="container tool-shell">
 <a class="back" href="../index.html">← Kembali ke semua tools</a>
-<div class="tool-head"><div class="eyebrow">DOCUMENT • V2 SMART ENGINE</div><h1>PDF → Word</h1>
-<p>Konversi PDF digital menjadi DOCX dengan tabel weighbridge yang benar-benar menjadi tabel Word, bukan sekadar teks acak.</p></div>
+<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF → Word</h1><p>Konversi PDF digital menjadi DOCX dengan Smart Conversion Engine; tabel terdeteksi dibuat sebagai tabel Word editable, bukan sekadar teks acak.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih PDF</label><input id="file" type="file" accept="application/pdf"></div>
 <div id="info" class="result"><div class="note">PDF scan/foto membutuhkan OCR dan belum didukung.</div></div>
-<button class="calc-btn" id="convert">Export Word Rapi</button>
+<button class="calc-btn" id="convert">Export Word</button>
 </div>
-<div class="tool-content"><h2>Smart Engine V2</h2><ul><li>Laporan weighbridge dikenali sebagai tabel 10 kolom.</li><li>Judul, tanggal, header, transaksi, dan total dipisahkan.</li><li>Multi-page PDF menjadi satu dokumen Word.</li><li>PDF lain tetap dapat dikonversi sebagai paragraf per baris.</li></ul></div>
+<div class="tool-content"><h2>Catatan</h2><ul><li>PDF harus memiliki text layer agar dapat diekstrak.</li><li>Layout kompleks, gambar, dan tabel sangat kompleks tidak selalu dapat direplikasi 100% seperti PDF asli.</li><li>Versi ini fokus pada DOCX yang dapat diedit dan teks yang tersusun rapi.</li></ul></div>
 </div></main>
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
+<script src="/assets/converter-engine.js"></script>
 <script>
 const pdfjs=window.pdfjsLib;
 if(pdfjs) pdfjs.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-let pages=[],sourceName='';
-const fileEl=document.getElementById('file'),info=document.getElementById('info');
-function makeLines(items){
- const usable=items.filter(i=>String(i.str||'').trim()),lines=[];
- usable.forEach(it=>{const x=+it.transform[4],y=+it.transform[5],h=Math.abs(+it.transform[3]||10);let l=lines.find(a=>Math.abs(a.y-y)<=Math.max(2.5,h*.45));if(!l){l={y,items:[]};lines.push(l);}l.items.push({x,text:String(it.str).trim()});});
- return lines.sort((a,b)=>b.y-a.y).map(l=>l.items.sort((a,b)=>a.x-b.x).map(x=>x.text).join(' ').replace(/\s+/g,' ').trim()).filter(Boolean);
-}
-async function readPdf(file){
- if(!pdfjs)throw new Error('PDF.js belum termuat.');
- const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise,out=[];
- for(let p=1;p<=pdf.numPages;p++){const c=await (await pdf.getPage(p)).getTextContent();out.push(makeLines(c.items));}
- return out;
-}
-const ticketRe=/\b(?:TLP|TO)\d{6,}\b/i,truckRe=/\b(?:BE|BG|KT)\d+[A-Z0-9]*\b(?:\s+[A-Z]{1,3})?/i,timeRe=/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g,tonRe=/\b\d+(?:[.,]\d{3})\b/g;
-function parseWeighbridge(allPages){
- const rows=[];
- allPages.forEach((ls,pageIndex)=>{
-  const starts=[];ls.forEach((x,i)=>{if(/^\d+\s+(?:TLP|TO)\d+/i.test(x))starts.push(i);});
-  starts.forEach((s,k)=>{
-   const block=ls.slice(s,k+1<starts.length?starts[k+1]:ls.length),joined=block.join(' ');
-   const no=Number((block[0].match(/^\d+/)||[])[0]),ticket=(joined.match(ticketRe)||[''])[0].toUpperCase(),after=joined.split(ticket)[1]||'',times=after.match(timeRe)||[],nums=after.match(tonRe)||[];
-   const truck=(after.split(times[0]||'')[0].match(truckRe)||[''])[0].trim();
-   let ni=-1;for(let i=0;i<block.length;i++)if(nums[2]&&block[i].includes(nums[2])){ni=i;break;}
-   const leaders=ni>=0?block.slice(ni+1).filter(x=>!/^T\s*O\s*T\s*A\s*L|^TOTAL/i.test(x)):[];
-   rows.push([no,ticket,truck,times[0]||'',times[1]||'',nums[0]||'',nums[1]||'',nums[2]||'',leaders[0]||'',leaders[1]||leaders[0]||'']);
-  });
- });
- return rows;
-}
-function P(text,opts={}){const {Paragraph,TextRun}=window.docx;return new Paragraph({children:[new TextRun({text:String(text||''),bold:!!opts.bold,size:opts.size||20})],spacing:{after:opts.after||80}});}
-function cell(text,bold=false){const {TableCell,Paragraph,TextRun}=window.docx;return new TableCell({children:[new Paragraph({children:[new TextRun({text:String(text??''),bold,size:18})]})]});}
-function makeTable(rows){
- const {Table,TableRow,WidthType}=window.docx;
- const headers=['No','Ticket No.','Truck','In','Out','Gross (Ton)','Tarra (Ton)','Netto (Ton)','Sub Leader','Leader'];
- const all=[headers,...rows];
- return new Table({width:{size:100,type:WidthType.PERCENTAGE},rows:all.map((r,i)=>new TableRow({children:r.map(v=>cell(v,i===0))}))});
-}
+let extracted=null; const fileEl=document.getElementById('file'), info=document.getElementById('info');
+function esc(s){return String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 fileEl.addEventListener('change',async e=>{
- const f=e.target.files[0];if(!f)return;sourceName=f.name;info.innerHTML='<div class="note">Membaca PDF dan mengenali struktur tabel…</div>';
- try{pages=await readPdf(f);const rows=parseWeighbridge(pages);info.innerHTML='<div class="big">'+pages.length+' halaman</div><div class="note">'+(rows.length?rows.length+' transaksi dikenali sebagai tabel.':'Mode teks umum aktif.')+' Klik Export Word Rapi.</div>';}
- catch(err){pages=[];info.innerHTML='<div class="note">Gagal membaca PDF: '+(err.message||err)+'</div>';}}
-);
+ const f=e.target.files[0];if(!f)return;info.innerHTML='<div class="note">Smart Engine membaca struktur PDF…</div>';extracted=null;
+ try{extracted=await IUConvert.extractPdf(pdfjs,f);const t=IUConvert.flattenTable(extracted);info.innerHTML='<div class="big">'+extracted.pages.length+' halaman • '+t.rows.length+' baris</div><div class="note">'+(t.headers.length?'Tabel terdeteksi dan akan dibuat sebagai tabel Word.':'Teks akan dibuat sebagai paragraf editable.')+'</div>';}
+ catch(err){info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}
+});
 document.getElementById('convert').addEventListener('click',async()=>{
- if(!pages.length){alert('Pilih PDF terlebih dahulu.');return;} if(!window.docx){alert('Library Word belum termuat. Refresh halaman.');return;}
+ if(!extracted){alert('Pilih PDF terlebih dahulu.');return;} if(!window.docx){alert('Library Word belum termuat. Refresh halaman dan coba lagi.');return;}
  try{
-  const {Document,Packer,PageOrientation}=window.docx, rows=parseWeighbridge(pages), children=[];
-  const first=pages[0];
-  if(rows.length){
-    const title=first.find(x=>/weighbridge/i.test(x))||'Weighbridge';
-    const date=first.find(x=>/^Date\s*:/i.test(x))||'';
-    children.push(P(title,{bold:true,size:28,after:60}),P('Daily Report Of Molasses',{bold:true,size:24}),P(date,{size:20,after:160}),makeTable(rows));
-    const totals=rows.reduce((a,r)=>{a.g+=(parseFloat(r[5])||0);a.t+=(parseFloat(r[6])||0);a.n+=(parseFloat(r[7])||0);return a;},{g:0,t:0,n:0});
-    children.push(P(''),P('TOTAL — '+rows.length+' rit | Gross '+totals.g.toFixed(3)+' | Tarra '+totals.t.toFixed(3)+' | Netto '+totals.n.toFixed(3),{bold:true,size:20}));
-  }else{
-    pages.forEach((ls,pi)=>{if(pi)children.push(P(''));ls.forEach(x=>children.push(P(x)));});
+  const {Document,Packer,Paragraph,TextRun,Table,TableRow,TableCell,WidthType,PageOrientation,TableLayoutType}=window.docx;
+  const t=IUConvert.flattenTable(extracted); const children=[];
+  if(t.headers.length>=2 && t.rows.length){
+    const makeCell=(text,bold=false)=>new TableCell({children:[new Paragraph({children:[new TextRun({text:String(text||''),bold,size:17})]})]});
+    children.push(new Paragraph({children:[new TextRun({text:'Converted PDF Table',bold:true,size:22})],spacing:{after:120}}));
+    const header=new TableRow({children:t.headers.map(h=>makeCell(h,true))});
+    const body=t.rows.map(r=>new TableRow({children:t.headers.map((_,i)=>makeCell(r[i]||''))}));
+    children.push(new Table({rows:[header,...body],width:{size:100,type:WidthType.PERCENTAGE},layout:TableLayoutType.FIXED}));
+  } else {
+    for(const p of extracted.pages){
+      if(p.page>1) children.push(new Paragraph({pageBreakBefore:true,text:''}));
+      for(const line of p.rawLines){if(line) children.push(new Paragraph({children:[new TextRun({text:line,size:20})],spacing:{after:80}}));}
+    }
   }
-  const doc=new Document({sections:[{properties:{page:{orientation:rows.length?PageOrientation.LANDSCAPE:PageOrientation.PORTRAIT,margin:{top:540,right:540,bottom:540,left:540}}},children}]});
-  const blob=await Packer.toBlob(doc),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=(sourceName.replace(/\.pdf$/i,'')||'pdf')+'-rapi.docx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
+  const doc=new Document({sections:[{properties:{page:{orientation:PageOrientation.LANDSCAPE}},children}]});
+  const blob=await Packer.toBlob(doc); const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='pdf-ke-word-smart.docx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
  }catch(err){alert('Gagal membuat Word: '+(err.message||err));}
 });
 </script></body></html>

@@ -2,9 +2,9 @@
 <html lang="id">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Konversi PDF digital ke Excel dengan mesin perapian tabel, validasi kolom, multi-halaman, dan fallback teks.">
+<meta name="description" content="Konversi PDF digital menjadi Excel dengan struktur baris dan kolom yang lebih rapi.">
 <title>PDF → Excel — Indonesia Utility Tools</title>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
 <header class="site-header"><div class="container nav">
@@ -13,59 +13,48 @@
 </div></header>
 <main class="tool-page"><div class="container tool-shell">
 <a class="back" href="../index.html">← Kembali ke semua tools</a>
-<div class="tool-head"><div class="eyebrow">DOCUMENT • V2 SMART ENGINE</div><h1>PDF → Excel</h1>
-<p>Smart Conversion Engine untuk mendeteksi struktur tabel PDF secara otomatis, merekonstruksi baris/kolom, memperbaiki pergeseran data, menggabungkan multi-halaman, dan memvalidasi hasil.</p></div>
+<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF → Excel</h1><p>Ekstrak PDF digital menjadi Excel menggunakan Smart Conversion Engine yang mendeteksi header, posisi kolom, baris data, dan meneruskan struktur tabel antar halaman.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih PDF</label><input id="file" type="file" accept="application/pdf"></div>
 <div id="info" class="result"><div class="note">Gunakan PDF digital/text-based untuk hasil terbaik. PDF scan/foto membutuhkan OCR.</div></div>
-<button class="calc-btn" id="convert">Export Excel Rapi</button>
+<button class="calc-btn" id="convert">Export Excel</button>
 </div>
-<div class="tool-content"><h2>Smart Table Reconstruction Engine V2</h2>
-<ul><li>Mengenali laporan weighbridge seperti <b>No, Ticket, Truck, In, Out, Gross, Tarra, Netto, Sub Leader, Leader</b>.</li>
-<li>Baris transaksi yang terpecah karena PDF tetap digabung.</li>
-<li>Header/footer halaman yang berulang tidak dimasukkan sebagai transaksi.</li>
-<li>Gross − Tarra dibandingkan dengan Netto; selisih ditandai pada kolom Validasi.</li>
-<li>Jika PDF bukan tabel yang dikenali, tersedia sheet <b>Raw Text</b> sebagai fallback sehingga data tidak hilang.</li></ul></div>
+<div class="tool-content"><h2>Catatan</h2><ul><li>Header tabel dan batas kolom dianalisis otomatis; tidak dikunci ke satu template PDF.</li><li>Struktur kolom diteruskan ke halaman berikutnya dan data dikelompokkan berdasarkan posisi.</li><li>PDF scan/foto tanpa text layer tidak dapat dibaca tanpa OCR.</li></ul></div>
 </div></main>
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"></script>
+<script src="/assets/converter-engine.js"></script>
 <script>
 const pdfjs=window.pdfjsLib;
 if(pdfjs) pdfjs.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-let extracted=[],sourceName='',previewResult=null;
-const fileEl=document.getElementById('file'),info=document.getElementById('info'),btn=document.getElementById('convert');
-const esc=s=>String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-function norm(s){return String(s||'').replace(/\s+/g,' ').trim();}
-function makeLines(items){
- const usable=items.filter(i=>norm(i.str)); const lines=[];
- usable.forEach(it=>{const x=Number(it.transform?.[4]||0),y=Number(it.transform?.[5]||0),h=Math.abs(Number(it.transform?.[3]||10))||10;let l=lines.find(a=>Math.abs(a.y-y)<=Math.max(2.5,h*.45));if(!l){l={y,items:[]};lines.push(l);}l.items.push({x,w:Number(it.width||0),text:norm(it.str)});});
- return lines.sort((a,b)=>b.y-a.y).map(l=>{l.items.sort((a,b)=>a.x-b.x);return {text:norm(l.items.map(x=>x.text).join(' ')),items:l.items};}).filter(l=>l.text);
-}
-async function readPdf(file){if(!pdfjs)throw new Error('PDF.js belum termuat. Refresh halaman.');const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise,pages=[];for(let p=1;p<=pdf.numPages;p++){const c=await pdf.getPage(p).then(x=>x.getTextContent());pages.push({page:p,lines:makeLines(c.items)});}return pages;}
-function headerScore(t){const x=norm(t).toLowerCase();return ['no','no.','ticket','invoice','date','truck','vehicle','customer','product','item','description','qty','quantity','amount','gross','tare','tarra','net','netto','leader','in','out','price','total','status'].filter(k=>x.includes(k)).length;}
-function detectHeader(lines){let best=null;lines.forEach((l,i)=>{const sc=l.items.length>=2?headerScore(l.text)+Math.min(l.items.length,8)*.2:0;if(!best||sc>best.score)best={i,score:sc,line:l};});return best&&best.score>=2?best:null;}
-function splitCells(line,anchors){const cells=Array(anchors.length).fill('');line.items.forEach(it=>{let idx=0,best=Infinity;anchors.forEach((a,i)=>{const d=Math.abs(it.x-a);if(d<best){best=d;idx=i;}});cells[idx]=norm((cells[idx]+' '+it.text));});return cells;}
-function inferAnchors(lines,header){if(header?.line?.items?.length>=2)return header.line.items.map(i=>i.x);const xs=[];lines.forEach(l=>l.items.forEach(i=>xs.push(i.x)));xs.sort((a,b)=>a-b);const clusters=[];xs.forEach(x=>{let c=clusters[clusters.length-1];if(!c||x-c.max>28)clusters.push({max:x,vals:[x]});else{c.vals.push(x);c.max=Math.max(c.max,x);}});return clusters.filter(c=>c.vals.length>=2).map(c=>c.vals.reduce((a,b)=>a+b,0)/c.vals.length).slice(0,20);}
-function likelyNumeric(s){return /^[-+]?\d[\d.,]*$/.test(norm(s));}
-function repairNumeric(cells,headers){const h=headers.map(x=>x.toLowerCase());const gi=h.findIndex(x=>/gross/.test(x)),ti=h.findIndex(x=>/tare|tarra/.test(x)),ni=h.findIndex(x=>/netto|\bnet\b/.test(x));if(gi<0||ti<0||ni<0)return cells;const nums=cells.map((v,i)=>({i,v:Number(String(v).replace(/,/g,''))})).filter(x=>Number.isFinite(x.v));if(nums.length<3)return cells;const candidates=[];for(const a of nums)for(const b of nums)for(const c of nums){if(a.i===b.i||a.i===c.i||b.i===c.i)continue;if(Math.abs((a.v-b.v)-c.v)<.002)candidates.push([a,b,c]);}if(!candidates.length)return cells;const [a,b,c]=candidates[0];const out=[...cells];out[gi]=String(a.v);out[ti]=String(b.v);out[ni]=String(c.v);return out;}
-function genericTable(pages){
- const all=[]; pages.forEach(pg=>pg.lines.forEach(l=>all.push({...l,page:pg.page})));
- const h=detectHeader(all); const header=h?h.line.items.map(x=>x.text):[]; const anchors=inferAnchors(all,h);
- if(anchors.length<2)return {headers:[],rows:[],mode:'raw',confidence:0};
- const rows=[]; let currentPage=null;
- pages.forEach(pg=>{pg.lines.forEach((l,idx)=>{if(h&&pg.page===h.line.page&&l===h.line)return; const text=l.text; if(/^page\s*[:\-]?\s*\d+/i.test(text)||/^total\b/i.test(text)||/^t\s*o\s*t\s*a\s*l/i.test(text))return; const cells=splitCells(l,anchors); if(cells.filter(Boolean).length>=2){rows.push({page:pg.page,cells});}});});
- let headers=header.length>=2?header:Array.from({length:anchors.length},(_,i)=>'Column '+(i+1));
- const width=Math.max(headers.length,...rows.map(r=>r.cells.length)); while(headers.length<width)headers.push('Column '+headers.length);
- const out=rows.map(r=>{let c=r.cells.slice();while(c.length<width)c.push('');return repairNumeric(c,headers);});
- const nonempty=out.filter(r=>r.filter(Boolean).length>=Math.max(2,Math.ceil(width*.35)));
- return {headers,rows:nonempty,mode:header?'auto-table':'coordinate-table',confidence:Math.min(100,Math.round((header?55:35)+Math.min(45,nonempty.length)))};
-}
-function detectWeighbridgeProfile(table){const h=table.headers.map(x=>x.toLowerCase());return h.some(x=>/ticket/.test(x))&&h.some(x=>/gross/.test(x))&&h.some(x=>/tare|tarra/.test(x))&&h.some(x=>/netto|\bnet\b/.test(x));}
-function createWorkbook(pages){const wb=XLSX.utils.book_new(),table=genericTable(pages);if(table.rows.length){let headers=table.headers,rows=table.rows;if(detectWeighbridgeProfile(table)){headers=headers.map(h=>h.replace(/^net$/i,'Netto').replace(/^tare$/i,'Tarra'));}
- const aoa=[headers,...rows]; const ws=XLSX.utils.aoa_to_sheet(aoa); ws['!cols']=headers.map((h,i)=>({wch:Math.min(35,Math.max(10,String(h).length+3))})); XLSX.utils.book_append_sheet(wb,ws,'Converted Table');
- const raw=[['Page','Raw Text'],...pages.flatMap(p=>p.lines.map(l=>[p.page,l.text]))];const wr=XLSX.utils.aoa_to_sheet(raw);wr['!cols']=[{wch:8},{wch:120}];XLSX.utils.book_append_sheet(wb,wr,'Raw Text');return {wb,count:rows.length,mode:table.mode,confidence:table.confidence};}
- const raw=[['Page','Raw Text'],...pages.flatMap(p=>p.lines.map(l=>[p.page,l.text]))];const ws=XLSX.utils.aoa_to_sheet(raw);ws['!cols']=[{wch:8},{wch:120}];XLSX.utils.book_append_sheet(wb,ws,'Raw Text');return {wb,count:0,mode:'raw',confidence:0};}
-fileEl.addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;sourceName=f.name;extracted=[];previewResult=null;info.innerHTML='<div class="note">Smart Engine: menganalisis struktur PDF…</div>';try{extracted=await readPdf(f);previewResult=createWorkbook(extracted);info.innerHTML='<div class="big">'+extracted.length+' halaman</div><div class="note">Mode: <b>'+previewResult.mode+'</b> • '+(previewResult.count?previewResult.count+' baris terstruktur':'tabel belum terdeteksi, Raw Text tersedia')+' • Confidence '+previewResult.confidence+'%. Klik Export Excel Rapi.</div>';}catch(err){info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}});
-btn.addEventListener('click',()=>{if(!extracted.length){alert('Pilih PDF terlebih dahulu.');return;}try{const r=previewResult||createWorkbook(extracted);XLSX.writeFile(r.wb,(sourceName.replace(/\.pdf$/i,'')||'pdf')+'-smart.xlsx',{compression:true});}catch(err){alert('Gagal membuat Excel: '+(err.message||err));}});
+let extracted=null;
+const fileEl=document.getElementById('file'), info=document.getElementById('info'), btn=document.getElementById('convert');
+function esc(s){return String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+fileEl.addEventListener('change',async e=>{
+ const f=e.target.files[0]; if(!f)return;
+ info.innerHTML='<div class="note">Smart Engine membaca PDF, mencari header tabel, lalu membangun batas kolom otomatis…</div>'; extracted=null;
+ try{
+   extracted=await IUConvert.extractPdf(pdfjs,f);
+   const t=IUConvert.flattenTable(extracted);
+   const rows=t.rows.length, cols=t.headers.length;
+   info.innerHTML='<div class="big">'+extracted.pages.length+' halaman • '+rows+' baris • '+cols+' kolom</div><div class="note">'+(t.headers.length?t.headers.join(' • '):'Tabel tidak terdeteksi; gunakan Raw Text.')+'</div>';
+ }catch(err){info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}
+});
+btn.addEventListener('click',()=>{
+ if(!extracted){alert('Pilih PDF terlebih dahulu.');return;}
+ const t=IUConvert.flattenTable(extracted), wb=XLSX.utils.book_new();
+ const data=[t.headers,...t.rows];
+ const ws=XLSX.utils.aoa_to_sheet(data);
+ ws['!freeze']={xSplit:0,ySplit:1};
+ ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:Math.max(0,data.length-1),c:Math.max(0,t.headers.length-1)}})};
+ ws['!cols']=t.headers.map((h,i)=>({wch:Math.min(42,Math.max(10,Math.max(String(h).length,...t.rows.slice(0,200).map(r=>String(r[i]||'').length))*1.05))}));
+ if(data.length) ws['!rows']=[{hpt:22}];
+ XLSX.utils.book_append_sheet(wb,ws,'Converted Table');
+ const raw=[['Halaman','Teks']]; extracted.pages.forEach(p=>p.rawLines.forEach(line=>raw.push([p.page,line])));
+ const wr=XLSX.utils.aoa_to_sheet(raw); wr['!cols']=[{wch:10},{wch:120}]; XLSX.utils.book_append_sheet(wb,wr,'Raw Text');
+ const diag=[['Metric','Value'],['Pages',extracted.pages.length],['Detected columns',t.headers.length],['Detected data rows',t.rows.length],['Engine','Smart Document Conversion Engine v1.3']];
+ const wd=XLSX.utils.aoa_to_sheet(diag); wd['!cols']=[{wch:24},{wch:55}]; XLSX.utils.book_append_sheet(wb,wd,'Diagnostics');
+ XLSX.writeFile(wb,'pdf-ke-excel-smart.xlsx');
+});
 </script></body></html>
