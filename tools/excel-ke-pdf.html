@@ -1,9 +1,8 @@
 <!doctype html>
 <html lang="id">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Ubah workbook Excel atau CSV menjadi PDF sederhana yang rapi langsung di browser.">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Ubah workbook Excel menjadi PDF dengan tabel yang rapi, wrapping, header berulang, dan pemisahan halaman.">
 <title>Excel → PDF — Indonesia Utility Tools</title>
 <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -14,42 +13,47 @@
 </div></header>
 <main class="tool-page"><div class="container tool-shell">
 <a class="back" href="../index.html">← Kembali ke semua tools</a>
-<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>Excel → PDF</h1><p>Ubah workbook Excel atau CSV menjadi PDF sederhana yang rapi langsung di browser.</p></div>
+<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>Excel → PDF</h1><p>Konversi semua sheet Excel menjadi PDF dengan tabel yang lebih rapi dan otomatis berpindah halaman.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih file Excel / CSV</label><input id="file" type="file" accept=".xlsx,.xls,.csv"></div>
-<div id="info" class="result"><div class="note">Pilih file untuk melihat preview.</div></div>
+<div id="info" class="result"><div class="note">Pilih file untuk memuat workbook.</div></div>
 <button class="calc-btn" id="convert">Export PDF</button>
 </div>
-<div class="tool-content"><h2>Catatan</h2><p>File diproses langsung di browser pada versi ini. Untuk hasil terbaik, gunakan dokumen digital yang tidak terenkripsi atau diproteksi password.</p></div>
+<div class="tool-content"><h2>Perbaikan V1.2</h2><ul><li>Lebar kolom dan teks panjang ditangani dengan wrapping.</li><li>Header tabel diulang pada halaman berikutnya.</li><li>Sheet berbeda dipisahkan dengan halaman baru.</li><li>Tabel yang sangat lebar dapat dibagi secara horizontal.</li></ul></div>
 </div></main>
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
 <script>
 let workbook=null;
-document.getElementById('file').addEventListener('change',async e=>{
- const f=e.target.files[0]; if(!f)return; const data=await f.arrayBuffer();
- workbook=XLSX.read(data,{type:'array'}); const sheet=workbook.Sheets[workbook.SheetNames[0]];
- const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''}).slice(0,8);
- document.getElementById('info').innerHTML='<div class="big">'+esc(f.name)+'</div><div class="note">'+workbook.SheetNames.length+' sheet(s). Preview: '+rows.length+' baris pertama.</div>';
+const fileEl=document.getElementById('file'), info=document.getElementById('info');
+function esc(s){return String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+fileEl.addEventListener('change',async e=>{
+ const f=e.target.files[0];if(!f)return; info.innerHTML='<div class="note">Membaca workbook…</div>';
+ try{workbook=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true}); const total=workbook.SheetNames.reduce((n,s)=>n+XLSX.utils.sheet_to_json(workbook.Sheets[s],{header:1,defval:''}).length,0); info.innerHTML='<div class="big">'+workbook.SheetNames.length+' sheet</div><div class="note">'+total+' baris siap dikonversi.</div>';}catch(err){workbook=null;info.innerHTML='<div class="note">Gagal membaca file: '+esc(err.message||err)+'</div>';}
 });
 document.getElementById('convert').addEventListener('click',()=>{
  if(!workbook){alert('Pilih file Excel terlebih dahulu.');return;}
- const {jsPDF}=window.jspdf, pdf=new jsPDF({unit:'mm',format:'a4',orientation:'l'}), margin=10, pageW=297, pageH=210;
+ if(!window.jspdf||typeof window.jspdf.jsPDF!=='function'){alert('Library PDF belum termuat. Refresh halaman dan coba lagi.');return;}
+ const {jsPDF}=window.jspdf; const pdf=new jsPDF({unit:'mm',format:'a4',orientation:'landscape',compress:true});
  workbook.SheetNames.forEach((name,si)=>{
-   if(si) pdf.addPage('a4','l');
-   const rows=XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,defval:''});
-   pdf.setFontSize(14); pdf.text(String(name).slice(0,55),margin,12);
-   let y=20; const maxCols=Math.min(rows.reduce((m,r)=>Math.max(m,r.length),0),10); const colW=(pageW-2*margin)/Math.max(maxCols,1);
-   pdf.setFontSize(7);
-   rows.forEach((row,ri)=>{
-     if(y>pageH-10){pdf.addPage('a4','l');y=12;pdf.setFontSize(7);}
-     for(let c=0;c<maxCols;c++){const txt=String(row[c]??'').replace(/\s+/g,' ').slice(0,34);pdf.rect(margin+c*colW,y-5,colW,7);pdf.text(txt,margin+c*colW+1,y, {maxWidth:colW-2});}
-     y+=7;
+   if(si) pdf.addPage('a4','landscape');
+   const rows=XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,defval:'',raw:false});
+   const data=rows.length>1?rows.slice(1):[]; const head=rows.length?[rows[0].map(v=>String(v??''))]:[['(kosong)']];
+   pdf.setFontSize(13); pdf.setTextColor(15,39,71); pdf.text(String(name).slice(0,70),8,10);
+   if(!data.length){pdf.setFontSize(9);pdf.setTextColor(90,100,115);pdf.text('Sheet kosong.',8,18);return;}
+   const maxCols=Math.max(head[0].length,...data.map(r=>r.length));
+   const norm=r=>Array.from({length:maxCols},(_,i)=>String(r[i]??''));
+   pdf.autoTable({
+     startY:15, head:[norm(head[0])], body:data.map(norm), margin:{top:15,right:7,bottom:9,left:7},
+     theme:'grid', tableWidth:'auto', showHead:'everyPage', rowPageBreak:'avoid',
+     styles:{font:'helvetica',fontSize:maxCols>12?5.2:maxCols>8?6:7,cellPadding:1.5,overflow:'linebreak',valign:'middle'},
+     headStyles:{fontStyle:'bold',halign:'center'}, bodyStyles:{textColor:[35,45,60]},
+     columnStyles:Object.fromEntries(Array.from({length:maxCols},(_,i)=>[i,{cellWidth:'auto'}])),
+     horizontalPageBreak:true, horizontalPageBreakRepeat:0
    });
  });
  pdf.save('excel-ke-pdf.pdf');
 });
-function esc(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-</script>
-</body></html>
+</script></body></html>

@@ -1,9 +1,8 @@
 <!doctype html>
 <html lang="id">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Ekstrak teks dari PDF menjadi workbook Excel langsung di browser. Cocok untuk PDF digital berbasis teks.">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Konversi PDF digital menjadi Excel dengan struktur baris dan kolom yang lebih rapi.">
 <title>PDF → Excel — Indonesia Utility Tools</title>
 <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -14,27 +13,73 @@
 </div></header>
 <main class="tool-page"><div class="container tool-shell">
 <a class="back" href="../index.html">← Kembali ke semua tools</a>
-<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF → Excel</h1><p>Ekstrak teks dari PDF menjadi workbook Excel langsung di browser. Cocok untuk PDF digital berbasis teks.</p></div>
+<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF → Excel</h1><p>Ekstrak PDF digital menjadi Excel dengan urutan teks berdasarkan posisi halaman. Struktur tabel sederhana dipertahankan semaksimal mungkin.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih PDF</label><input id="file" type="file" accept="application/pdf"></div>
-<div id="info" class="result"><div class="note">PDF scan/foto memerlukan OCR dan belum didukung di V1.1.</div></div>
+<div id="info" class="result"><div class="note">Gunakan PDF digital/text-based untuk hasil terbaik. PDF scan/foto membutuhkan OCR.</div></div>
 <button class="calc-btn" id="convert">Export Excel</button>
 </div>
-<div class="tool-content"><h2>Catatan</h2><p>File diproses langsung di browser pada versi ini. Untuk hasil terbaik, gunakan dokumen digital yang tidak terenkripsi atau diproteksi password.</p></div>
+<div class="tool-content"><h2>Catatan</h2><ul><li>Baris dibentuk dari posisi vertikal teks, lalu item dalam baris diurutkan dari kiri ke kanan.</li><li>Kolom tabel sederhana dideteksi dari jarak antar teks.</li><li>PDF scan/foto tanpa text layer tidak dapat dibaca tanpa OCR.</li></ul></div>
 </div></main>
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script>pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"></script>
 <script>
+const pdfjs = window.pdfjsLib;
+if(pdfjs) pdfjs.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 let extracted=[];
-document.getElementById('file').addEventListener('change',async e=>{
- const f=e.target.files[0];if(!f)return; extracted=[]; const pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;
- for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const c=await page.getTextContent();const text=c.items.map(x=>x.str).join(' ').trim();extracted.push([p,text]);}
- document.getElementById('info').innerHTML='<div class="big">'+pdf.numPages+' halaman</div><div class="note">Teks berhasil diekstrak. Klik Export Excel.</div>';
+const fileEl=document.getElementById('file'), info=document.getElementById('info'), btn=document.getElementById('convert');
+function esc(s){return String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function buildRows(items){
+  const usable=items.filter(i=>String(i.str||'').trim());
+  const lines=[];
+  usable.forEach(it=>{
+    const x=it.transform[4], y=it.transform[5], h=Math.abs(it.transform[3])||10, w=it.width||0;
+    let line=lines.find(l=>Math.abs(l.y-y)<=Math.max(3,h*.35));
+    if(!line){line={y,items:[]};lines.push(line);}
+    line.items.push({x,y,w,h,text:String(it.str).trim()});
+  });
+  lines.sort((a,b)=>b.y-a.y);
+  return lines.map(line=>{
+    const arr=line.items.sort((a,b)=>a.x-b.x);
+    const cells=[]; let current=''; let prevEnd=null; let prevH=10;
+    arr.forEach(t=>{
+      const gap=prevEnd===null?0:t.x-prevEnd;
+      const breakCell=prevEnd!==null && gap>Math.max(16,prevH*1.55);
+      if(breakCell){cells.push(current.trim());current=t.text;} else {current=current?(current+' '+t.text):t.text;}
+      prevEnd=t.x+t.w; prevH=t.h;
+    });
+    if(current.trim())cells.push(current.trim());
+    return cells;
+  });
+}
+async function readPdf(file){
+ if(!pdfjs) throw new Error('Library PDF.js belum termuat. Refresh halaman dan coba lagi.');
+ const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
+ const pages=[];
+ for(let p=1;p<=pdf.numPages;p++){
+   const page=await pdf.getPage(p); const c=await page.getTextContent();
+   const rows=buildRows(c.items); pages.push({page:p,rows});
+ }
+ return pages;
+}
+fileEl.addEventListener('change',async e=>{
+ const f=e.target.files[0]; if(!f)return;
+ info.innerHTML='<div class="note">Membaca PDF dan menyusun posisi teks…</div>'; extracted=[];
+ try{
+   extracted=await readPdf(f);
+   const totalRows=extracted.reduce((n,p)=>n+p.rows.length,0);
+   info.innerHTML='<div class="big">'+extracted.length+' halaman</div><div class="note">'+totalRows+' baris teks berhasil disusun. Klik Export Excel.</div>';
+ }catch(err){info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}
 });
-document.getElementById('convert').addEventListener('click',()=>{
+btn.addEventListener('click',()=>{
  if(!extracted.length){alert('Pilih PDF terlebih dahulu.');return;}
- const ws=XLSX.utils.aoa_to_sheet([['Halaman','Teks'],...extracted]); const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'PDF Text');XLSX.writeFile(wb,'pdf-ke-excel.xlsx');
+ const wb=XLSX.utils.book_new(); const structured=[['Halaman','Kolom 1','Kolom 2','Kolom 3','Kolom 4','Kolom 5','Kolom 6','Kolom 7','Kolom 8','Kolom 9','Kolom 10']];
+ const raw=[['Halaman','Teks']];
+ extracted.forEach(p=>p.rows.forEach(r=>{structured.push([p.page,...r]);raw.push([p.page,r.join(' | ')]);}));
+ const ws=XLSX.utils.aoa_to_sheet(structured), wr=XLSX.utils.aoa_to_sheet(raw);
+ ws['!cols']=[{wch:9},...Array(10).fill({wch:22})]; wr['!cols']=[{wch:9},{wch:110}];
+ XLSX.utils.book_append_sheet(wb,ws,'Structured'); XLSX.utils.book_append_sheet(wb,wr,'Raw Text');
+ XLSX.writeFile(wb,'pdf-ke-excel.xlsx');
 });
-</script>
-</body></html>
+</script></body></html>
