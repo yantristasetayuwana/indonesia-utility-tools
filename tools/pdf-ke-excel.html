@@ -13,14 +13,14 @@
 </div></header>
 <main class="tool-page"><div class="container tool-shell">
 <a class="back" href="../index.html">← Kembali ke semua tools</a>
-<div class="tool-head"><div class="eyebrow">DOCUMENT • V1.3</div><h1>PDF → Excel</h1>
-<p>Mesin perapian otomatis untuk membaca tabel PDF, memperbaiki baris/kolom yang bergeser, menggabungkan multi-halaman, dan memvalidasi angka.</p></div>
+<div class="tool-head"><div class="eyebrow">DOCUMENT • V2 SMART ENGINE</div><h1>PDF → Excel</h1>
+<p>Smart Conversion Engine untuk mendeteksi struktur tabel PDF secara otomatis, merekonstruksi baris/kolom, memperbaiki pergeseran data, menggabungkan multi-halaman, dan memvalidasi hasil.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih PDF</label><input id="file" type="file" accept="application/pdf"></div>
 <div id="info" class="result"><div class="note">Gunakan PDF digital/text-based untuk hasil terbaik. PDF scan/foto membutuhkan OCR.</div></div>
 <button class="calc-btn" id="convert">Export Excel Rapi</button>
 </div>
-<div class="tool-content"><h2>Mesin perapian V1.3</h2>
+<div class="tool-content"><h2>Smart Table Reconstruction Engine V2</h2>
 <ul><li>Mengenali laporan weighbridge seperti <b>No, Ticket, Truck, In, Out, Gross, Tarra, Netto, Sub Leader, Leader</b>.</li>
 <li>Baris transaksi yang terpecah karena PDF tetap digabung.</li>
 <li>Header/footer halaman yang berulang tidak dimasukkan sebagai transaksi.</li>
@@ -33,118 +33,39 @@
 <script>
 const pdfjs=window.pdfjsLib;
 if(pdfjs) pdfjs.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-let extracted=[], sourceName='';
-const fileEl=document.getElementById('file'), info=document.getElementById('info'), btn=document.getElementById('convert');
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-
+let extracted=[],sourceName='',previewResult=null;
+const fileEl=document.getElementById('file'),info=document.getElementById('info'),btn=document.getElementById('convert');
+const esc=s=>String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function norm(s){return String(s||'').replace(/\s+/g,' ').trim();}
 function makeLines(items){
-  const usable=items.filter(i=>String(i.str||'').trim());
-  const lines=[];
-  usable.forEach(it=>{
-    const x=Number(it.transform[4]||0), y=Number(it.transform[5]||0), h=Math.abs(Number(it.transform[3]||10))||10;
-    let line=lines.find(l=>Math.abs(l.y-y)<=Math.max(2.5,h*.45));
-    if(!line){line={y,items:[]};lines.push(line);}
-    line.items.push({x,w:Number(it.width||0),text:String(it.str).trim()});
-  });
-  return lines.sort((a,b)=>b.y-a.y).map(l=>{
-    l.items.sort((a,b)=>a.x-b.x);
-    return {text:l.items.map(x=>x.text).join(' ').replace(/\s+/g,' ').trim(),items:l.items};
-  }).filter(l=>l.text);
+ const usable=items.filter(i=>norm(i.str)); const lines=[];
+ usable.forEach(it=>{const x=Number(it.transform?.[4]||0),y=Number(it.transform?.[5]||0),h=Math.abs(Number(it.transform?.[3]||10))||10;let l=lines.find(a=>Math.abs(a.y-y)<=Math.max(2.5,h*.45));if(!l){l={y,items:[]};lines.push(l);}l.items.push({x,w:Number(it.width||0),text:norm(it.str)});});
+ return lines.sort((a,b)=>b.y-a.y).map(l=>{l.items.sort((a,b)=>a.x-b.x);return {text:norm(l.items.map(x=>x.text).join(' ')),items:l.items};}).filter(l=>l.text);
 }
-async function readPdf(file){
-  if(!pdfjs) throw new Error('PDF.js belum termuat. Refresh halaman dan coba lagi.');
-  const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise, pages=[];
-  for(let p=1;p<=pdf.numPages;p++){
-    const page=await pdf.getPage(p), c=await page.getTextContent();
-    pages.push({page:p,lines:makeLines(c.items)});
-  }
-  return pages;
+async function readPdf(file){if(!pdfjs)throw new Error('PDF.js belum termuat. Refresh halaman.');const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise,pages=[];for(let p=1;p<=pdf.numPages;p++){const c=await pdf.getPage(p).then(x=>x.getTextContent());pages.push({page:p,lines:makeLines(c.items)});}return pages;}
+function headerScore(t){const x=norm(t).toLowerCase();return ['no','no.','ticket','invoice','date','truck','vehicle','customer','product','item','description','qty','quantity','amount','gross','tare','tarra','net','netto','leader','in','out','price','total','status'].filter(k=>x.includes(k)).length;}
+function detectHeader(lines){let best=null;lines.forEach((l,i)=>{const sc=l.items.length>=2?headerScore(l.text)+Math.min(l.items.length,8)*.2:0;if(!best||sc>best.score)best={i,score:sc,line:l};});return best&&best.score>=2?best:null;}
+function splitCells(line,anchors){const cells=Array(anchors.length).fill('');line.items.forEach(it=>{let idx=0,best=Infinity;anchors.forEach((a,i)=>{const d=Math.abs(it.x-a);if(d<best){best=d;idx=i;}});cells[idx]=norm((cells[idx]+' '+it.text));});return cells;}
+function inferAnchors(lines,header){if(header?.line?.items?.length>=2)return header.line.items.map(i=>i.x);const xs=[];lines.forEach(l=>l.items.forEach(i=>xs.push(i.x)));xs.sort((a,b)=>a-b);const clusters=[];xs.forEach(x=>{let c=clusters[clusters.length-1];if(!c||x-c.max>28)clusters.push({max:x,vals:[x]});else{c.vals.push(x);c.max=Math.max(c.max,x);}});return clusters.filter(c=>c.vals.length>=2).map(c=>c.vals.reduce((a,b)=>a+b,0)/c.vals.length).slice(0,20);}
+function likelyNumeric(s){return /^[-+]?\d[\d.,]*$/.test(norm(s));}
+function repairNumeric(cells,headers){const h=headers.map(x=>x.toLowerCase());const gi=h.findIndex(x=>/gross/.test(x)),ti=h.findIndex(x=>/tare|tarra/.test(x)),ni=h.findIndex(x=>/netto|\bnet\b/.test(x));if(gi<0||ti<0||ni<0)return cells;const nums=cells.map((v,i)=>({i,v:Number(String(v).replace(/,/g,''))})).filter(x=>Number.isFinite(x.v));if(nums.length<3)return cells;const candidates=[];for(const a of nums)for(const b of nums)for(const c of nums){if(a.i===b.i||a.i===c.i||b.i===c.i)continue;if(Math.abs((a.v-b.v)-c.v)<.002)candidates.push([a,b,c]);}if(!candidates.length)return cells;const [a,b,c]=candidates[0];const out=[...cells];out[gi]=String(a.v);out[ti]=String(b.v);out[ni]=String(c.v);return out;}
+function genericTable(pages){
+ const all=[]; pages.forEach(pg=>pg.lines.forEach(l=>all.push({...l,page:pg.page})));
+ const h=detectHeader(all); const header=h?h.line.items.map(x=>x.text):[]; const anchors=inferAnchors(all,h);
+ if(anchors.length<2)return {headers:[],rows:[],mode:'raw',confidence:0};
+ const rows=[]; let currentPage=null;
+ pages.forEach(pg=>{pg.lines.forEach((l,idx)=>{if(h&&pg.page===h.line.page&&l===h.line)return; const text=l.text; if(/^page\s*[:\-]?\s*\d+/i.test(text)||/^total\b/i.test(text)||/^t\s*o\s*t\s*a\s*l/i.test(text))return; const cells=splitCells(l,anchors); if(cells.filter(Boolean).length>=2){rows.push({page:pg.page,cells});}});});
+ let headers=header.length>=2?header:Array.from({length:anchors.length},(_,i)=>'Column '+(i+1));
+ const width=Math.max(headers.length,...rows.map(r=>r.cells.length)); while(headers.length<width)headers.push('Column '+headers.length);
+ const out=rows.map(r=>{let c=r.cells.slice();while(c.length<width)c.push('');return repairNumeric(c,headers);});
+ const nonempty=out.filter(r=>r.filter(Boolean).length>=Math.max(2,Math.ceil(width*.35)));
+ return {headers,rows:nonempty,mode:header?'auto-table':'coordinate-table',confidence:Math.min(100,Math.round((header?55:35)+Math.min(45,nonempty.length)))};
 }
-const ticketRe=/\b(?:TLP|TO)\d{6,}\b/i;
-const truckRe=/\b(?:BE|BG|KT)\d+[A-Z0-9]*\b(?:\s+[A-Z]{1,3})?/i;
-const timeRe=/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g;
-const tonRe=/\b\d+(?:[.,]\d{3})\b/g;
-function isStart(text){return /^(\d+)\s+(?:TLP|TO)\d+/i.test(text);}
-function isTotal(text){return /^T\s*O\s*T\s*A\s*L/i.test(text)||/^TOTAL\b/i.test(text);}
-function repairWeighbridge(pages){
-  const rows=[];
-  pages.forEach(pg=>{
-    const ls=pg.lines.map(x=>x.text);
-    const starts=[];
-    ls.forEach((x,i)=>{if(isStart(x)) starts.push(i);});
-    if(!starts.length) return;
-    starts.forEach((s,k)=>{
-      const e=k+1<starts.length?starts[k+1]:ls.length, block=ls.slice(s,e);
-      const joined=block.join(' ');
-      const no=Number((block[0].match(/^\d+/)||[])[0]);
-      const ticket=(joined.match(ticketRe)||[''])[0].toUpperCase();
-      const afterTicket=joined.split(ticket)[1]||'';
-      const times=afterTicket.match(timeRe)||[];
-      const firstTime=times[0]||'';
-      const truck=(afterTicket.split(firstTime)[0].match(truckRe)||[''])[0].replace(/\s+/g,' ').trim();
-      const nums=afterTicket.match(tonRe)||[];
-      const tons=nums.slice(0,3).map(v=>v.replace(',','.'));
-      let numLine=-1;
-      for(let i=0;i<block.length;i++) if(tons[2] && block[i].includes(nums[2])) {numLine=i;break;}
-      const leaders=numLine>=0?block.slice(numLine+1).filter(x=>!isTotal(x)&&!/^Page\s*:/i.test(x)):[]; 
-      const sub=leaders[0]||'', leader=leaders[1]||sub;
-      const gross=Number(tons[0]), tare=Number(tons[1]), net=Number(tons[2]);
-      const diff=(Number.isFinite(gross)&&Number.isFinite(tare)&&Number.isFinite(net)) ? Math.round((gross-tare-net)*1000)/1000 : null;
-      rows.push({page:pg.page,no,ticket,truck,in:times[0]||'',out:times[1]||'',gross:tons[0]||'',tare:tons[1]||'',net:tons[2]||'',sub,leader,diff});
-    });
-  });
-  return rows;
-}
-function genericRows(pages){
-  const out=[['Halaman','Teks']];
-  pages.forEach(p=>p.lines.forEach(l=>out.push([p.page,l.text])));
-  return out;
-}
-function formatTon(v){return v===''?'':Number(v).toFixed(3);}
-function createWorkbook(pages){
-  const wb=XLSX.utils.book_new(), wbRows=repairWeighbridge(pages);
-  if(wbRows.length>=2){
-    const meta=[];
-    const firstLines=pages[0].lines.map(x=>x.text);
-    const title=firstLines.find(x=>/weighbridge/i.test(x))||'Weighbridge';
-    const date=firstLines.find(x=>/^Date\s*:/i.test(x))||'';
-    meta.push([title]); meta.push(['Daily Report Of Molasses']); if(date) meta.push([date]); meta.push([]);
-    meta.push(['No','Ticket No.','Truck','In','Out','Gross (Ton)','Tarra (Ton)','Netto (Ton)','Sub Leader','Leader','Validasi']);
-    wbRows.forEach(r=>{
-      meta.push([r.no,r.ticket,r.truck,r.in,r.out,formatTon(r.gross),formatTon(r.tare),formatTon(r.net),r.sub,r.leader,
-        r.diff===null?'':(Math.abs(r.diff)<0.001?'OK':'CHECK '+r.diff.toFixed(3))]);
-    });
-    const totals=wbRows.reduce((a,r)=>{a.g+=Number(r.gross)||0;a.t+=Number(r.tare)||0;a.n+=Number(r.net)||0;return a;},{g:0,t:0,n:0});
-    meta.push([]);
-    meta.push(['TOTAL',wbRows.length+' rit','','','','',formatTon(totals.g),formatTon(totals.t),formatTon(totals.n)]);
-    const ws=XLSX.utils.aoa_to_sheet(meta);
-    ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:10}},{s:{r:1,c:0},e:{r:1,c:10}},{s:{r:2,c:0},e:{r:2,c:10}}];
-    ws['!cols']=[{wch:7},{wch:17},{wch:15},{wch:8},{wch:8},{wch:14},{wch:14},{wch:14},{wch:32},{wch:32},{wch:12}];
-    const headerRow=4;
-    for(let c=0;c<11;c++){const cell=ws[XLSX.utils.encode_cell({r:headerRow,c})]; if(cell) cell.s={font:{bold:true},fill:{fgColor:{rgb:'D9E2F3'}}};}
-    XLSX.utils.book_append_sheet(wb,ws,'Detail Received');
-    const raw=genericRows(pages); const wr=XLSX.utils.aoa_to_sheet(raw); wr['!cols']=[{wch:9},{wch:120}]; XLSX.utils.book_append_sheet(wb,wr,'Raw Text');
-    return {wb,count:wbRows.length,kind:'weighbridge'};
-  }
-  const ws=XLSX.utils.aoa_to_sheet(genericRows(pages)); ws['!cols']=[{wch:9},{wch:120}];
-  XLSX.utils.book_append_sheet(wb,ws,'Raw Text');
-  return {wb,count:0,kind:'generic'};
-}
-fileEl.addEventListener('change',async e=>{
-  const f=e.target.files[0]; if(!f)return; sourceName=f.name; extracted=[];
-  info.innerHTML='<div class="note">Membaca PDF dan menjalankan mesin perapian…</div>';
-  try{
-    extracted=await readPdf(f);
-    const result=createWorkbook(extracted);
-    const n=result.count?result.count+' transaksi dikenali':'Tabel khusus tidak dikenali; mode Raw Text aktif';
-    info.innerHTML='<div class="big">'+extracted.length+' halaman</div><div class="note">'+n+'. Klik Export Excel Rapi untuk menyimpan hasil.</div>';
-  }catch(err){info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}
-});
-btn.addEventListener('click',()=>{
-  if(!extracted.length){alert('Pilih PDF terlebih dahulu.');return;}
-  try{
-    const result=createWorkbook(extracted);
-    XLSX.writeFile(result.wb,(sourceName.replace(/\.pdf$/i,'')||'pdf')+'-rapi.xlsx',{compression:true});
-  }catch(err){alert('Gagal membuat Excel: '+(err.message||err));}
-});
+function detectWeighbridgeProfile(table){const h=table.headers.map(x=>x.toLowerCase());return h.some(x=>/ticket/.test(x))&&h.some(x=>/gross/.test(x))&&h.some(x=>/tare|tarra/.test(x))&&h.some(x=>/netto|\bnet\b/.test(x));}
+function createWorkbook(pages){const wb=XLSX.utils.book_new(),table=genericTable(pages);if(table.rows.length){let headers=table.headers,rows=table.rows;if(detectWeighbridgeProfile(table)){headers=headers.map(h=>h.replace(/^net$/i,'Netto').replace(/^tare$/i,'Tarra'));}
+ const aoa=[headers,...rows]; const ws=XLSX.utils.aoa_to_sheet(aoa); ws['!cols']=headers.map((h,i)=>({wch:Math.min(35,Math.max(10,String(h).length+3))})); XLSX.utils.book_append_sheet(wb,ws,'Converted Table');
+ const raw=[['Page','Raw Text'],...pages.flatMap(p=>p.lines.map(l=>[p.page,l.text]))];const wr=XLSX.utils.aoa_to_sheet(raw);wr['!cols']=[{wch:8},{wch:120}];XLSX.utils.book_append_sheet(wb,wr,'Raw Text');return {wb,count:rows.length,mode:table.mode,confidence:table.confidence};}
+ const raw=[['Page','Raw Text'],...pages.flatMap(p=>p.lines.map(l=>[p.page,l.text]))];const ws=XLSX.utils.aoa_to_sheet(raw);ws['!cols']=[{wch:8},{wch:120}];XLSX.utils.book_append_sheet(wb,ws,'Raw Text');return {wb,count:0,mode:'raw',confidence:0};}
+fileEl.addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;sourceName=f.name;extracted=[];previewResult=null;info.innerHTML='<div class="note">Smart Engine: menganalisis struktur PDF…</div>';try{extracted=await readPdf(f);previewResult=createWorkbook(extracted);info.innerHTML='<div class="big">'+extracted.length+' halaman</div><div class="note">Mode: <b>'+previewResult.mode+'</b> • '+(previewResult.count?previewResult.count+' baris terstruktur':'tabel belum terdeteksi, Raw Text tersedia')+' • Confidence '+previewResult.confidence+'%. Klik Export Excel Rapi.</div>';}catch(err){info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}});
+btn.addEventListener('click',()=>{if(!extracted.length){alert('Pilih PDF terlebih dahulu.');return;}try{const r=previewResult||createWorkbook(extracted);XLSX.writeFile(r.wb,(sourceName.replace(/\.pdf$/i,'')||'pdf')+'-smart.xlsx',{compression:true});}catch(err){alert('Gagal membuat Excel: '+(err.message||err));}});
 </script></body></html>
