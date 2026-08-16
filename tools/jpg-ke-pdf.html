@@ -1,11 +1,10 @@
 <!doctype html>
 <html lang="id">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Gabungkan satu atau beberapa gambar JPG/PNG menjadi satu file PDF langsung di browser.">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Gabungkan JPG, PNG, dan WebP menjadi PDF A4 dengan urutan file dan orientasi otomatis.">
 <title>JPG → PDF — Indonesia Utility Tools</title>
-<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
 <header class="site-header"><div class="container nav">
@@ -14,33 +13,45 @@
 </div></header>
 <main class="tool-page"><div class="container tool-shell">
 <a class="back" href="../index.html">← Kembali ke semua tools</a>
-<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>JPG → PDF</h1><p>Gabungkan satu atau beberapa gambar JPG/PNG menjadi satu file PDF langsung di browser.</p></div>
+<div class="tool-head"><div class="eyebrow">DOCUMENT • V1.3</div><h1>JPG → PDF</h1>
+<p>Gabungkan banyak gambar menjadi satu PDF dengan urutan file, orientasi otomatis, dan rasio gambar tetap.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih gambar</label><input id="files" type="file" accept="image/jpeg,image/png,image/webp" multiple></div>
-<div id="preview" class="result"><div class="note">Belum ada gambar dipilih.</div></div>
+<div id="info" class="result"><div class="note">Belum ada gambar dipilih.</div></div>
+<div id="preview" style="display:flex;flex-wrap:wrap;gap:8px"></div>
 <button class="calc-btn" id="make">Buat PDF</button>
 <div id="status" class="result" style="display:none"></div>
 </div>
-<div class="tool-content"><h2>Catatan</h2><p>File diproses langsung di browser pada versi ini. Untuk hasil terbaik, gunakan dokumen digital yang tidak terenkripsi atau diproteksi password.</p></div>
+<div class="tool-content"><h2>Perbaikan V1.3</h2><ul><li>Semua file diproses sesuai urutan pilihan.</li><li>Orientasi portrait/landscape mengikuti rasio gambar.</li><li>Gambar dipasang maksimal ke area A4 tanpa distorsi.</li><li>PNG transparan diberi latar putih saat dimasukkan ke PDF.</li></ul></div>
 </div></main>
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
-const fileInput=document.getElementById('files'), preview=document.getElementById('preview'), statusBox=document.getElementById('status');
-fileInput.addEventListener('change',()=>{preview.innerHTML=''; [...fileInput.files].forEach(f=>{const r=new FileReader();r.onload=e=>{const img=document.createElement('img');img.src=e.target.result;img.style.maxWidth='100%';img.style.maxHeight='180px';img.style.margin='6px';img.style.borderRadius='8px';preview.appendChild(img)};r.readAsDataURL(f)});});
-document.getElementById('make').addEventListener('click',async()=>{
- const files=[...fileInput.files]; if(!files.length){alert('Pilih gambar terlebih dahulu.');return;}
- const {jsPDF}=window.jspdf; let pdf=null;
- for(let i=0;i<files.length;i++){const data=await readData(files[i]);const img=await loadImage(data);const landscape=img.width>img.height;
-  const orient=landscape?'l':'p'; if(!pdf) pdf=new jsPDF({orientation:orient,unit:'mm',format:'a4'});
-  else pdf.addPage('a4',orient);
-  const pw=orient==='l'?297:210, ph=orient==='l'?210:297, margin=10;
-  const scale=Math.min((pw-2*margin)/img.width,(ph-2*margin)/img.height);
-  const w=img.width*scale,h=img.height*scale; pdf.addImage(data,files[i].type==='image/png'?'PNG':'JPEG', (pw-w)/2,(ph-h)/2,w,h);
- }
- pdf.save('jpg-ke-pdf.pdf'); statusBox.style.display='block'; statusBox.innerHTML='<div class="big">PDF berhasil dibuat.</div>';
-});
+const fileInput=document.getElementById('files'),preview=document.getElementById('preview'),info=document.getElementById('info'),statusBox=document.getElementById('status');
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function readData(f){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f);});}
-function loadImage(src){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src;});}
-</script>
-</body></html>
+function loadImage(src){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('Gambar tidak dapat dibaca'));i.src=src;});}
+fileInput.addEventListener('change',async()=>{
+ preview.innerHTML='';statusBox.style.display='none';
+ const files=[...fileInput.files];
+ info.innerHTML=files.length?'<div class="big">'+files.length+' gambar</div><div class="note">Urutan mengikuti daftar file yang dipilih.</div>':'<div class="note">Belum ada gambar dipilih.</div>';
+ files.forEach(f=>{const r=new FileReader();r.onload=e=>{const img=document.createElement('img');img.src=e.target.result;img.style.width='130px';img.style.height='95px';img.style.objectFit='contain';img.style.border='1px solid #d8dee8';img.style.borderRadius='8px';preview.appendChild(img)};r.readAsDataURL(f);});
+});
+document.getElementById('make').addEventListener('click',async()=>{
+ const files=[...fileInput.files];if(!files.length){alert('Pilih gambar terlebih dahulu.');return;}if(!window.jspdf){alert('Library PDF belum termuat. Refresh halaman.');return;}
+ const btn=document.getElementById('make');btn.disabled=true;btn.textContent='Membuat PDF…';
+ try{
+  const {jsPDF}=window.jspdf;let pdf=null;
+  for(let i=0;i<files.length;i++){
+   const f=files[i],data=await readData(f),img=await loadImage(data),landscape=img.width>=img.height,orient=landscape?'landscape':'portrait';
+   if(!pdf)pdf=new jsPDF({orientation:orient,unit:'mm',format:'a4',compress:true});else pdf.addPage('a4',orient);
+   const pw=landscape?297:210,ph=landscape?210:297,margin=10,scale=Math.min((pw-2*margin)/img.width,(ph-2*margin)/img.height),w=img.width*scale,h=img.height*scale;
+   let payload=data,type=f.type==='image/png'?'PNG':'JPEG';
+   if(type==='PNG'){const c=document.createElement('canvas');c.width=img.width;c.height=img.height;const ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);ctx.drawImage(img,0,0);payload=c.toDataURL('image/jpeg',0.94);type='JPEG';}
+   pdf.addImage(payload,type,(pw-w)/2,(ph-h)/2,w,h,undefined,'FAST');
+  }
+  pdf.save('jpg-ke-pdf.pdf');statusBox.style.display='block';statusBox.innerHTML='<div class="big">PDF berhasil dibuat.</div><div class="note">'+files.length+' halaman.</div>';
+ }catch(err){alert('Gagal membuat PDF: '+(err.message||err));}
+ finally{btn.disabled=false;btn.textContent='Buat PDF';}
+});
+</script></body></html>

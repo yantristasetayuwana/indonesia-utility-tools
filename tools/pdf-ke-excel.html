@@ -2,9 +2,9 @@
 <html lang="id">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Konversi PDF digital menjadi Excel dengan struktur baris dan kolom yang lebih rapi.">
+<meta name="description" content="Konversi PDF digital ke Excel dengan mesin perapian tabel, validasi kolom, multi-halaman, dan fallback teks.">
 <title>PDF → Excel — Indonesia Utility Tools</title>
-<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
 <header class="site-header"><div class="container nav">
@@ -13,73 +13,138 @@
 </div></header>
 <main class="tool-page"><div class="container tool-shell">
 <a class="back" href="../index.html">← Kembali ke semua tools</a>
-<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF → Excel</h1><p>Ekstrak PDF digital menjadi Excel dengan urutan teks berdasarkan posisi halaman. Struktur tabel sederhana dipertahankan semaksimal mungkin.</p></div>
+<div class="tool-head"><div class="eyebrow">DOCUMENT • V1.3</div><h1>PDF → Excel</h1>
+<p>Mesin perapian otomatis untuk membaca tabel PDF, memperbaiki baris/kolom yang bergeser, menggabungkan multi-halaman, dan memvalidasi angka.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih PDF</label><input id="file" type="file" accept="application/pdf"></div>
 <div id="info" class="result"><div class="note">Gunakan PDF digital/text-based untuk hasil terbaik. PDF scan/foto membutuhkan OCR.</div></div>
-<button class="calc-btn" id="convert">Export Excel</button>
+<button class="calc-btn" id="convert">Export Excel Rapi</button>
 </div>
-<div class="tool-content"><h2>Catatan</h2><ul><li>Baris dibentuk dari posisi vertikal teks, lalu item dalam baris diurutkan dari kiri ke kanan.</li><li>Kolom tabel sederhana dideteksi dari jarak antar teks.</li><li>PDF scan/foto tanpa text layer tidak dapat dibaca tanpa OCR.</li></ul></div>
+<div class="tool-content"><h2>Mesin perapian V1.3</h2>
+<ul><li>Mengenali laporan weighbridge seperti <b>No, Ticket, Truck, In, Out, Gross, Tarra, Netto, Sub Leader, Leader</b>.</li>
+<li>Baris transaksi yang terpecah karena PDF tetap digabung.</li>
+<li>Header/footer halaman yang berulang tidak dimasukkan sebagai transaksi.</li>
+<li>Gross − Tarra dibandingkan dengan Netto; selisih ditandai pada kolom Validasi.</li>
+<li>Jika PDF bukan tabel yang dikenali, tersedia sheet <b>Raw Text</b> sebagai fallback sehingga data tidak hilang.</li></ul></div>
 </div></main>
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
-const pdfjs = window.pdfjsLib;
+const pdfjs=window.pdfjsLib;
 if(pdfjs) pdfjs.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-let extracted=[];
+let extracted=[], sourceName='';
 const fileEl=document.getElementById('file'), info=document.getElementById('info'), btn=document.getElementById('convert');
-function esc(s){return String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-function buildRows(items){
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function makeLines(items){
   const usable=items.filter(i=>String(i.str||'').trim());
   const lines=[];
   usable.forEach(it=>{
-    const x=it.transform[4], y=it.transform[5], h=Math.abs(it.transform[3])||10, w=it.width||0;
-    let line=lines.find(l=>Math.abs(l.y-y)<=Math.max(3,h*.35));
+    const x=Number(it.transform[4]||0), y=Number(it.transform[5]||0), h=Math.abs(Number(it.transform[3]||10))||10;
+    let line=lines.find(l=>Math.abs(l.y-y)<=Math.max(2.5,h*.45));
     if(!line){line={y,items:[]};lines.push(line);}
-    line.items.push({x,y,w,h,text:String(it.str).trim()});
+    line.items.push({x,w:Number(it.width||0),text:String(it.str).trim()});
   });
-  lines.sort((a,b)=>b.y-a.y);
-  return lines.map(line=>{
-    const arr=line.items.sort((a,b)=>a.x-b.x);
-    const cells=[]; let current=''; let prevEnd=null; let prevH=10;
-    arr.forEach(t=>{
-      const gap=prevEnd===null?0:t.x-prevEnd;
-      const breakCell=prevEnd!==null && gap>Math.max(16,prevH*1.55);
-      if(breakCell){cells.push(current.trim());current=t.text;} else {current=current?(current+' '+t.text):t.text;}
-      prevEnd=t.x+t.w; prevH=t.h;
-    });
-    if(current.trim())cells.push(current.trim());
-    return cells;
-  });
+  return lines.sort((a,b)=>b.y-a.y).map(l=>{
+    l.items.sort((a,b)=>a.x-b.x);
+    return {text:l.items.map(x=>x.text).join(' ').replace(/\s+/g,' ').trim(),items:l.items};
+  }).filter(l=>l.text);
 }
 async function readPdf(file){
- if(!pdfjs) throw new Error('Library PDF.js belum termuat. Refresh halaman dan coba lagi.');
- const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
- const pages=[];
- for(let p=1;p<=pdf.numPages;p++){
-   const page=await pdf.getPage(p); const c=await page.getTextContent();
-   const rows=buildRows(c.items); pages.push({page:p,rows});
- }
- return pages;
+  if(!pdfjs) throw new Error('PDF.js belum termuat. Refresh halaman dan coba lagi.');
+  const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise, pages=[];
+  for(let p=1;p<=pdf.numPages;p++){
+    const page=await pdf.getPage(p), c=await page.getTextContent();
+    pages.push({page:p,lines:makeLines(c.items)});
+  }
+  return pages;
+}
+const ticketRe=/\b(?:TLP|TO)\d{6,}\b/i;
+const truckRe=/\b(?:BE|BG|KT)\d+[A-Z0-9]*\b(?:\s+[A-Z]{1,3})?/i;
+const timeRe=/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g;
+const tonRe=/\b\d+(?:[.,]\d{3})\b/g;
+function isStart(text){return /^(\d+)\s+(?:TLP|TO)\d+/i.test(text);}
+function isTotal(text){return /^T\s*O\s*T\s*A\s*L/i.test(text)||/^TOTAL\b/i.test(text);}
+function repairWeighbridge(pages){
+  const rows=[];
+  pages.forEach(pg=>{
+    const ls=pg.lines.map(x=>x.text);
+    const starts=[];
+    ls.forEach((x,i)=>{if(isStart(x)) starts.push(i);});
+    if(!starts.length) return;
+    starts.forEach((s,k)=>{
+      const e=k+1<starts.length?starts[k+1]:ls.length, block=ls.slice(s,e);
+      const joined=block.join(' ');
+      const no=Number((block[0].match(/^\d+/)||[])[0]);
+      const ticket=(joined.match(ticketRe)||[''])[0].toUpperCase();
+      const afterTicket=joined.split(ticket)[1]||'';
+      const times=afterTicket.match(timeRe)||[];
+      const firstTime=times[0]||'';
+      const truck=(afterTicket.split(firstTime)[0].match(truckRe)||[''])[0].replace(/\s+/g,' ').trim();
+      const nums=afterTicket.match(tonRe)||[];
+      const tons=nums.slice(0,3).map(v=>v.replace(',','.'));
+      let numLine=-1;
+      for(let i=0;i<block.length;i++) if(tons[2] && block[i].includes(nums[2])) {numLine=i;break;}
+      const leaders=numLine>=0?block.slice(numLine+1).filter(x=>!isTotal(x)&&!/^Page\s*:/i.test(x)):[]; 
+      const sub=leaders[0]||'', leader=leaders[1]||sub;
+      const gross=Number(tons[0]), tare=Number(tons[1]), net=Number(tons[2]);
+      const diff=(Number.isFinite(gross)&&Number.isFinite(tare)&&Number.isFinite(net)) ? Math.round((gross-tare-net)*1000)/1000 : null;
+      rows.push({page:pg.page,no,ticket,truck,in:times[0]||'',out:times[1]||'',gross:tons[0]||'',tare:tons[1]||'',net:tons[2]||'',sub,leader,diff});
+    });
+  });
+  return rows;
+}
+function genericRows(pages){
+  const out=[['Halaman','Teks']];
+  pages.forEach(p=>p.lines.forEach(l=>out.push([p.page,l.text])));
+  return out;
+}
+function formatTon(v){return v===''?'':Number(v).toFixed(3);}
+function createWorkbook(pages){
+  const wb=XLSX.utils.book_new(), wbRows=repairWeighbridge(pages);
+  if(wbRows.length>=2){
+    const meta=[];
+    const firstLines=pages[0].lines.map(x=>x.text);
+    const title=firstLines.find(x=>/weighbridge/i.test(x))||'Weighbridge';
+    const date=firstLines.find(x=>/^Date\s*:/i.test(x))||'';
+    meta.push([title]); meta.push(['Daily Report Of Molasses']); if(date) meta.push([date]); meta.push([]);
+    meta.push(['No','Ticket No.','Truck','In','Out','Gross (Ton)','Tarra (Ton)','Netto (Ton)','Sub Leader','Leader','Validasi']);
+    wbRows.forEach(r=>{
+      meta.push([r.no,r.ticket,r.truck,r.in,r.out,formatTon(r.gross),formatTon(r.tare),formatTon(r.net),r.sub,r.leader,
+        r.diff===null?'':(Math.abs(r.diff)<0.001?'OK':'CHECK '+r.diff.toFixed(3))]);
+    });
+    const totals=wbRows.reduce((a,r)=>{a.g+=Number(r.gross)||0;a.t+=Number(r.tare)||0;a.n+=Number(r.net)||0;return a;},{g:0,t:0,n:0});
+    meta.push([]);
+    meta.push(['TOTAL',wbRows.length+' rit','','','','',formatTon(totals.g),formatTon(totals.t),formatTon(totals.n)]);
+    const ws=XLSX.utils.aoa_to_sheet(meta);
+    ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:10}},{s:{r:1,c:0},e:{r:1,c:10}},{s:{r:2,c:0},e:{r:2,c:10}}];
+    ws['!cols']=[{wch:7},{wch:17},{wch:15},{wch:8},{wch:8},{wch:14},{wch:14},{wch:14},{wch:32},{wch:32},{wch:12}];
+    const headerRow=4;
+    for(let c=0;c<11;c++){const cell=ws[XLSX.utils.encode_cell({r:headerRow,c})]; if(cell) cell.s={font:{bold:true},fill:{fgColor:{rgb:'D9E2F3'}}};}
+    XLSX.utils.book_append_sheet(wb,ws,'Detail Received');
+    const raw=genericRows(pages); const wr=XLSX.utils.aoa_to_sheet(raw); wr['!cols']=[{wch:9},{wch:120}]; XLSX.utils.book_append_sheet(wb,wr,'Raw Text');
+    return {wb,count:wbRows.length,kind:'weighbridge'};
+  }
+  const ws=XLSX.utils.aoa_to_sheet(genericRows(pages)); ws['!cols']=[{wch:9},{wch:120}];
+  XLSX.utils.book_append_sheet(wb,ws,'Raw Text');
+  return {wb,count:0,kind:'generic'};
 }
 fileEl.addEventListener('change',async e=>{
- const f=e.target.files[0]; if(!f)return;
- info.innerHTML='<div class="note">Membaca PDF dan menyusun posisi teks…</div>'; extracted=[];
- try{
-   extracted=await readPdf(f);
-   const totalRows=extracted.reduce((n,p)=>n+p.rows.length,0);
-   info.innerHTML='<div class="big">'+extracted.length+' halaman</div><div class="note">'+totalRows+' baris teks berhasil disusun. Klik Export Excel.</div>';
- }catch(err){info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}
+  const f=e.target.files[0]; if(!f)return; sourceName=f.name; extracted=[];
+  info.innerHTML='<div class="note">Membaca PDF dan menjalankan mesin perapian…</div>';
+  try{
+    extracted=await readPdf(f);
+    const result=createWorkbook(extracted);
+    const n=result.count?result.count+' transaksi dikenali':'Tabel khusus tidak dikenali; mode Raw Text aktif';
+    info.innerHTML='<div class="big">'+extracted.length+' halaman</div><div class="note">'+n+'. Klik Export Excel Rapi untuk menyimpan hasil.</div>';
+  }catch(err){info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}
 });
 btn.addEventListener('click',()=>{
- if(!extracted.length){alert('Pilih PDF terlebih dahulu.');return;}
- const wb=XLSX.utils.book_new(); const structured=[['Halaman','Kolom 1','Kolom 2','Kolom 3','Kolom 4','Kolom 5','Kolom 6','Kolom 7','Kolom 8','Kolom 9','Kolom 10']];
- const raw=[['Halaman','Teks']];
- extracted.forEach(p=>p.rows.forEach(r=>{structured.push([p.page,...r]);raw.push([p.page,r.join(' | ')]);}));
- const ws=XLSX.utils.aoa_to_sheet(structured), wr=XLSX.utils.aoa_to_sheet(raw);
- ws['!cols']=[{wch:9},...Array(10).fill({wch:22})]; wr['!cols']=[{wch:9},{wch:110}];
- XLSX.utils.book_append_sheet(wb,ws,'Structured'); XLSX.utils.book_append_sheet(wb,wr,'Raw Text');
- XLSX.writeFile(wb,'pdf-ke-excel.xlsx');
+  if(!extracted.length){alert('Pilih PDF terlebih dahulu.');return;}
+  try{
+    const result=createWorkbook(extracted);
+    XLSX.writeFile(result.wb,(sourceName.replace(/\.pdf$/i,'')||'pdf')+'-rapi.xlsx',{compression:true});
+  }catch(err){alert('Gagal membuat Excel: '+(err.message||err));}
 });
 </script></body></html>

@@ -2,9 +2,9 @@
 <html lang="id">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Ubah workbook Excel menjadi PDF dengan tabel yang rapi, wrapping, header berulang, dan pemisahan halaman.">
+<meta name="description" content="Konversi Excel atau CSV ke PDF dengan tabel rapi, header berulang, wrapping, dan pembagian halaman.">
 <title>Excel → PDF — Indonesia Utility Tools</title>
-<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
 <header class="site-header"><div class="container nav">
@@ -13,47 +13,64 @@
 </div></header>
 <main class="tool-page"><div class="container tool-shell">
 <a class="back" href="../index.html">← Kembali ke semua tools</a>
-<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>Excel → PDF</h1><p>Konversi semua sheet Excel menjadi PDF dengan tabel yang lebih rapi dan otomatis berpindah halaman.</p></div>
+<div class="tool-head"><div class="eyebrow">DOCUMENT • V1.3</div><h1>Excel → PDF</h1>
+<p>Konversi workbook Excel/CSV menjadi PDF dengan header berulang, wrapping, tabel multi-halaman, dan pembagian horizontal untuk sheet lebar.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih file Excel / CSV</label><input id="file" type="file" accept=".xlsx,.xls,.csv"></div>
 <div id="info" class="result"><div class="note">Pilih file untuk memuat workbook.</div></div>
-<button class="calc-btn" id="convert">Export PDF</button>
+<button class="calc-btn" id="convert">Export PDF Rapi</button>
 </div>
-<div class="tool-content"><h2>Perbaikan V1.2</h2><ul><li>Lebar kolom dan teks panjang ditangani dengan wrapping.</li><li>Header tabel diulang pada halaman berikutnya.</li><li>Sheet berbeda dipisahkan dengan halaman baru.</li><li>Tabel yang sangat lebar dapat dibagi secara horizontal.</li></ul></div>
+<div class="tool-content"><h2>Perbaikan V1.3</h2><ul><li>Semua sheet diproses.</li><li>Header diulang pada setiap halaman tabel.</li><li>Kolom panjang menggunakan wrapping.</li><li>Sheet lebar dibagi horizontal tanpa membuang kolom.</li><li>Blank row tidak dibuat menjadi halaman kosong yang berlebihan.</li></ul></div>
 </div></main>
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
 <script>
-let workbook=null;
-const fileEl=document.getElementById('file'), info=document.getElementById('info');
-function esc(s){return String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+let workbook=null,sourceName='';
+const fileEl=document.getElementById('file'),info=document.getElementById('info');
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function clean(v){return v===null||v===undefined?'':String(v);}
 fileEl.addEventListener('change',async e=>{
- const f=e.target.files[0];if(!f)return; info.innerHTML='<div class="note">Membaca workbook…</div>';
- try{workbook=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true}); const total=workbook.SheetNames.reduce((n,s)=>n+XLSX.utils.sheet_to_json(workbook.Sheets[s],{header:1,defval:''}).length,0); info.innerHTML='<div class="big">'+workbook.SheetNames.length+' sheet</div><div class="note">'+total+' baris siap dikonversi.</div>';}catch(err){workbook=null;info.innerHTML='<div class="note">Gagal membaca file: '+esc(err.message||err)+'</div>';}
+ const f=e.target.files[0];if(!f)return;sourceName=f.name;info.innerHTML='<div class="note">Membaca workbook…</div>';
+ try{
+  workbook=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true,cellNF:true,cellText:true});
+  const stats=workbook.SheetNames.map(s=>{const r=XLSX.utils.sheet_to_json(workbook.Sheets[s],{header:1,defval:'',raw:false});return s+': '+r.length+' baris';});
+  info.innerHTML='<div class="big">'+workbook.SheetNames.length+' sheet</div><div class="note">'+esc(stats.join(' • '))+'</div>';
+ }catch(err){workbook=null;info.innerHTML='<div class="note">Gagal membaca file: '+esc(err.message||err)+'</div>';}
 });
 document.getElementById('convert').addEventListener('click',()=>{
  if(!workbook){alert('Pilih file Excel terlebih dahulu.');return;}
- if(!window.jspdf||typeof window.jspdf.jsPDF!=='function'){alert('Library PDF belum termuat. Refresh halaman dan coba lagi.');return;}
- const {jsPDF}=window.jspdf; const pdf=new jsPDF({unit:'mm',format:'a4',orientation:'landscape',compress:true});
- workbook.SheetNames.forEach((name,si)=>{
-   if(si) pdf.addPage('a4','landscape');
+ if(!window.jspdf||typeof window.jspdf.jsPDF!=='function'||typeof window.jspdf.jsPDF.API.autoTable!=='function'){alert('Library PDF belum termuat. Refresh halaman dan coba lagi.');return;}
+ const btn=document.getElementById('convert');btn.disabled=true;btn.textContent='Membuat PDF…';
+ try{
+  const {jsPDF}=window.jspdf,pdf=new jsPDF({unit:'mm',format:'a4',orientation:'landscape',compress:true});
+  let pageUsed=false;
+  workbook.SheetNames.forEach((name,si)=>{
    const rows=XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,defval:'',raw:false});
-   const data=rows.length>1?rows.slice(1):[]; const head=rows.length?[rows[0].map(v=>String(v??''))]:[['(kosong)']];
-   pdf.setFontSize(13); pdf.setTextColor(15,39,71); pdf.text(String(name).slice(0,70),8,10);
-   if(!data.length){pdf.setFontSize(9);pdf.setTextColor(90,100,115);pdf.text('Sheet kosong.',8,18);return;}
-   const maxCols=Math.max(head[0].length,...data.map(r=>r.length));
-   const norm=r=>Array.from({length:maxCols},(_,i)=>String(r[i]??''));
+   while(rows.length&&rows[rows.length-1].every(v=>clean(v)===''))rows.pop();
+   if(!rows.length)return;
+   if(pageUsed)pdf.addPage('a4','landscape');
+   pageUsed=true;
+   const header=rows[0].map(clean), body=rows.slice(1).map(r=>Array.from({length:Math.max(header.length,...rows.map(x=>x.length))},(_,i)=>clean(r[i])));
+   const maxCols=Math.max(header.length,...body.map(r=>r.length),1);
+   while(header.length<maxCols)header.push('');
+   body.forEach(r=>{while(r.length<maxCols)r.push('');});
+   pdf.setFontSize(13);pdf.setTextColor(15,39,71);pdf.text(name.slice(0,90),8,9);
+   if(body.length===0){pdf.setFontSize(9);pdf.setTextColor(90,100,115);pdf.text('Sheet kosong.',8,17);return;}
+   const fontSize=maxCols>16?4.5:maxCols>12?5.2:maxCols>9?6:7;
    pdf.autoTable({
-     startY:15, head:[norm(head[0])], body:data.map(norm), margin:{top:15,right:7,bottom:9,left:7},
-     theme:'grid', tableWidth:'auto', showHead:'everyPage', rowPageBreak:'avoid',
-     styles:{font:'helvetica',fontSize:maxCols>12?5.2:maxCols>8?6:7,cellPadding:1.5,overflow:'linebreak',valign:'middle'},
-     headStyles:{fontStyle:'bold',halign:'center'}, bodyStyles:{textColor:[35,45,60]},
-     columnStyles:Object.fromEntries(Array.from({length:maxCols},(_,i)=>[i,{cellWidth:'auto'}])),
-     horizontalPageBreak:true, horizontalPageBreakRepeat:0
+    startY:14,head:[header],body,margin:{top:14,right:7,bottom:9,left:7},
+    theme:'grid',tableWidth:'auto',showHead:'everyPage',rowPageBreak:'auto',
+    styles:{font:'helvetica',fontSize,cellPadding:1.25,overflow:'linebreak',valign:'middle',textColor:[35,45,60]},
+    headStyles:{fontStyle:'bold',halign:'center',fillColor:[217,226,243],textColor:[20,35,55]},
+    alternateRowStyles:{fillColor:[248,250,252]},
+    horizontalPageBreak:true,horizontalPageBreakRepeat:0,
+    didDrawPage:data=>{pdf.setFontSize(7);pdf.setTextColor(100,110,120);pdf.text('Indonesia Utility Tools • '+name,8,205);}
    });
- });
- pdf.save('excel-ke-pdf.pdf');
+  });
+  pdf.save((sourceName.replace(/\.(xlsx|xls|csv)$/i,'')||'excel')+'-rapi.pdf');
+ }catch(err){alert('Gagal membuat PDF: '+(err.message||err));}
+ finally{btn.disabled=false;btn.textContent='Export PDF Rapi';}
 });
 </script></body></html>

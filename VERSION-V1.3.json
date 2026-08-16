@@ -1,0 +1,28 @@
+{
+  "version": "1.3",
+  "package": "indonesia-utility-tools-v1.3-QUALITY-FIX",
+  "tools": [
+    "excel-ke-pdf.html",
+    "jpg-ke-pdf.html",
+    "kalkulator-bbm.html",
+    "kalkulator-gaji.html",
+    "kalkulator-lembur.html",
+    "kalkulator-persentase.html",
+    "kalkulator-pesangon.html",
+    "kalkulator-thr.html",
+    "kalkulator-tonase.html",
+    "kalkulator-umur.html",
+    "kalkulator-volume.html",
+    "kg-ke-mt.html",
+    "pdf-ke-excel.html",
+    "pdf-ke-word.html",
+    "word-ke-pdf.html"
+  ],
+  "quality_checks": {
+    "html_files": 15,
+    "node_syntax_check": "passed",
+    "pdf_benchmark_pages": 3,
+    "pdf_benchmark_transactions": 112,
+    "pdf_benchmark_netto_total": 1886.69
+  }
+}

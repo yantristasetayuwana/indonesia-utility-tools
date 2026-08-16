@@ -1,11 +1,10 @@
 <!doctype html>
 <html lang="id">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Ubah dokumen DOCX menjadi PDF sederhana langsung di browser.">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Konversi DOCX ke PDF dengan tabel dan format HTML yang lebih terjaga.">
 <title>Word → PDF — Indonesia Utility Tools</title>
-<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
 <header class="site-header"><div class="container nav">
@@ -14,31 +13,64 @@
 </div></header>
 <main class="tool-page"><div class="container tool-shell">
 <a class="back" href="../index.html">← Kembali ke semua tools</a>
-<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>Word → PDF</h1><p>Ubah dokumen DOCX menjadi PDF sederhana langsung di browser.</p></div>
+<div class="tool-head"><div class="eyebrow">DOCUMENT • V1.3</div><h1>Word → PDF</h1>
+<p>Konversi DOCX ke PDF dengan mempertahankan heading, paragraf, tabel, gambar yang dapat dibaca Mammoth, dan struktur HTML sebanyak mungkin.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih dokumen Word (.docx)</label><input id="file" type="file" accept=".docx"></div>
 <div id="info" class="result"><div class="note">Pilih file DOCX untuk membaca isinya.</div></div>
-<button class="calc-btn" id="convert">Export PDF</button>
+<button class="calc-btn" id="convert">Export PDF Rapi</button>
 </div>
-<div class="tool-content"><h2>Catatan</h2><p>File diproses langsung di browser pada versi ini. Untuk hasil terbaik, gunakan dokumen digital yang tidak terenkripsi atau diproteksi password.</p></div>
+<div class="tool-content"><h2>Perbaikan V1.3</h2><ul><li>Tabel Word tidak lagi diratakan menjadi teks biasa.</li><li>HTML hasil pembacaan DOCX dirender ke halaman A4 sebelum dibuat PDF.</li><li>Paragraf, heading, daftar, dan tabel lebih terjaga.</li><li>File besar tetap diberi indikator proses.</li></ul></div>
 </div></main>
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
+<div id="render" style="position:fixed;left:-100000px;top:0;width:794px;background:#fff;color:#111;padding:48px;box-sizing:border-box;font-family:Arial,sans-serif;font-size:14px;line-height:1.45;"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
-let docHtml='';
-document.getElementById('file').addEventListener('change',async e=>{
- const f=e.target.files[0]; if(!f)return;
- try{const r=await mammoth.convertToHtml({arrayBuffer:await f.arrayBuffer()});docHtml=r.value;
- document.getElementById('info').innerHTML='<div class="big">'+f.name+'</div><div class="note">Dokumen berhasil dibaca. Klik Export PDF.</div>';}
- catch(err){document.getElementById('info').innerHTML='<div class="note">DOCX tidak dapat dibaca.</div>';}
+let docHtml='',sourceName='';
+const fileEl=document.getElementById('file'),info=document.getElementById('info'),render=document.getElementById('render');
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function styleRender(){
+ render.querySelectorAll('table').forEach(t=>{t.style.borderCollapse='collapse';t.style.width='100%';t.querySelectorAll('th,td').forEach(c=>{c.style.border='1px solid #777';c.style.padding='6px';c.style.verticalAlign='top';});});
+ render.querySelectorAll('img').forEach(i=>{i.style.maxWidth='100%';i.style.height='auto';});
+ render.querySelectorAll('h1').forEach(x=>{x.style.fontSize='26px';x.style.margin='0 0 12px';});
+ render.querySelectorAll('h2').forEach(x=>{x.style.fontSize='21px';x.style.margin='16px 0 8px';});
+ render.querySelectorAll('h3').forEach(x=>{x.style.fontSize='17px';x.style.margin='14px 0 7px';});
+ render.querySelectorAll('p,li').forEach(x=>{x.style.marginTop='0';x.style.marginBottom='7px';});
+}
+fileEl.addEventListener('change',async e=>{
+ const f=e.target.files[0];if(!f)return;sourceName=f.name;info.innerHTML='<div class="note">Membaca dan menyiapkan DOCX…</div>';
+ try{
+   if(!window.mammoth)throw new Error('Library DOCX belum termuat.');
+   const r=await mammoth.convertToHtml({arrayBuffer:await f.arrayBuffer()},{includeDefaultStyleMap:true});
+   docHtml=r.value; render.innerHTML=docHtml; styleRender();
+   info.innerHTML='<div class="big">'+esc(f.name)+'</div><div class="note">Dokumen berhasil dibaca. Struktur tabel dan paragraf siap dirender. Klik Export PDF Rapi.</div>';
+ }catch(err){docHtml='';info.innerHTML='<div class="note">DOCX tidak dapat dibaca: '+esc(err.message||err)+'</div>';}
 });
-document.getElementById('convert').addEventListener('click',()=>{
+document.getElementById('convert').addEventListener('click',async()=>{
  if(!docHtml){alert('Pilih file DOCX terlebih dahulu.');return;}
- const {jsPDF}=window.jspdf,pdf=new jsPDF({unit:'mm',format:'a4'}),margin=15,maxW=180; pdf.setFont('helvetica','normal');pdf.setFontSize(10);
- const temp=document.createElement('div');temp.innerHTML=docHtml; const text=temp.innerText||'';
- let y=18; for(const para of text.split(/\n+/)){const lines=pdf.splitTextToSize(para.trim(),maxW);for(const line of lines){if(y>280){pdf.addPage();y=18;}pdf.text(line,margin,y);y+=5;}y+=2;}
- pdf.save('word-ke-pdf.pdf');
+ if(!window.html2canvas||!window.jspdf){alert('Library PDF belum termuat. Refresh halaman dan coba lagi.');return;}
+ const btn=document.getElementById('convert');btn.disabled=true;btn.textContent='Membuat PDF…';
+ try{
+   render.innerHTML=docHtml;styleRender();
+   const canvas=await html2canvas(render,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false});
+   const {jsPDF}=window.jspdf,pdf=new jsPDF({unit:'mm',format:'a4',orientation:'portrait',compress:true});
+   const pageW=210,pageH=297,margin=10,usableW=pageW-2*margin;
+   const pxPerPage=Math.floor(canvas.width*(pageH-2*margin)/usableW);
+   let y=0,page=0;
+   while(y<canvas.height){
+     const h=Math.min(pxPerPage,canvas.height-y);
+     const slice=document.createElement('canvas');slice.width=canvas.width;slice.height=h;
+     slice.getContext('2d').drawImage(canvas,0,y,canvas.width,h,0,0,canvas.width,h);
+     const img=slice.toDataURL('image/jpeg',0.94);
+     const mmH=h*usableW/canvas.width;
+     if(page)pdf.addPage();
+     pdf.addImage(img,'JPEG',margin,margin,usableW,mmH,'FAST');
+     y+=h;page++;
+   }
+   pdf.save((sourceName.replace(/\.docx$/i,'')||'word')+'-rapi.pdf');
+ }catch(err){alert('Gagal membuat PDF: '+(err.message||err));}
+ finally{btn.disabled=false;btn.textContent='Export PDF Rapi';}
 });
-</script>
-</body></html>
+</script></body></html>
