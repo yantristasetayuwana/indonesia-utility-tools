@@ -1,3 +1,7 @@
+INDONESIA UTILITY TOOLS — V1.5 SMART CONVERTER FIX
+
+Perbaikan: path assets relatif agar tools dapat dites lokal maupun di Cloudflare Pages; tombol Export hanya aktif setelah file berhasil dibaca; diagnostik library; XLSX runtime diperbaiki.
+
 V1.1 FIX - ROOT RELATIVE ASSETS
 
 Semua tool HTML menggunakan root-relative:

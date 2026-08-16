@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="Ubah workbook Excel menjadi PDF dengan tabel yang rapi, wrapping, header berulang, dan pemisahan halaman.">
 <title>Excel → PDF — Indonesia Utility Tools</title>
-<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
 <header class="site-header"><div class="container nav">
@@ -17,17 +17,17 @@
 <div class="calculator-card">
 <div class="field"><label>Pilih file Excel / CSV</label><input id="file" type="file" accept=".xlsx,.xls,.csv"></div>
 <div id="info" class="result"><div class="note">Pilih file untuk memuat workbook.</div></div>
-<button class="calc-btn" id="convert">Export PDF</button>
+<button class="calc-btn" id="convert" type="button" disabled>Export PDF</button>
 </div>
 <div class="tool-content"><h2>Smart Excel → PDF</h2><ul><li>Lebar kolom dan teks panjang ditangani dengan wrapping.</li><li>Header tabel diulang pada halaman berikutnya.</li><li>Sheet berbeda dipisahkan dengan halaman baru.</li><li>Tabel yang sangat lebar dapat dibagi secara horizontal.</li></ul></div>
 </div></main>
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
 <script>
 let workbook=null;
-const fileEl=document.getElementById('file'), info=document.getElementById('info');
+const fileEl=document.getElementById('file'), info=document.getElementById('info'), btn=document.getElementById('convert');
 function esc(s){return String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function sheetRows(ws){
  const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,blankrows:true});
@@ -47,14 +47,18 @@ function findHeaderIndex(rows){
  }
  return 0;
 }
+function setBusy(busy,label){btn.disabled=busy;btn.classList.toggle('is-busy',busy);if(busy)btn.textContent=label||'Memproses…';}
+function setReady(label){btn.disabled=false;btn.classList.remove('is-busy');btn.textContent=label;}
+function setIdle(label){btn.disabled=true;btn.classList.remove('is-busy');btn.textContent=label;}
 fileEl.addEventListener('change',async e=>{
- const f=e.target.files[0];if(!f)return;info.innerHTML='<div class="note">Membaca workbook dan menghitung lebar kolom…</div>';
- try{workbook=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const total=workbook.SheetNames.reduce((n,s)=>n+sheetRows(workbook.Sheets[s]).length,0);info.innerHTML='<div class="big">'+workbook.SheetNames.length+' sheet</div><div class="note">'+total+' baris siap dikonversi. Kolom lebar akan dibagi otomatis bila melebihi halaman.</div>';}catch(err){workbook=null;info.innerHTML='<div class="note">Gagal membaca file: '+esc(err.message||err)+'</div>';}
+ const f=e.target.files[0];if(!f){workbook=null;setIdle('Export PDF');return;}setBusy(true,'Membaca…');info.innerHTML='<div class="note">Membaca workbook dan menghitung lebar kolom…</div>';
+ try{workbook=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const total=workbook.SheetNames.reduce((n,s)=>n+sheetRows(workbook.Sheets[s]).length,0);setReady('Export PDF');info.innerHTML='<div class="big">'+workbook.SheetNames.length+' sheet</div><div class="note">'+total+' baris siap dikonversi. Kolom lebar akan dibagi otomatis bila melebihi halaman.</div>';}catch(err){workbook=null;setIdle('Export PDF');info.innerHTML='<div class="note">Gagal membaca file: '+esc(err.message||err)+'</div>';}
 });
-document.getElementById('convert').addEventListener('click',()=>{
+document.getElementById('convert').addEventListener('click',async()=>{
  if(!workbook){alert('Pilih file Excel terlebih dahulu.');return;}
  if(!window.jspdf||typeof window.jspdf.jsPDF!=='function'||typeof window.jspdf.jsPDF.API.autoTable!=='function'){alert('Library PDF belum lengkap. Refresh halaman dan coba lagi.');return;}
- const {jsPDF}=window.jspdf; const pdf=new jsPDF({unit:'mm',format:'a4',orientation:'landscape',compress:true});
+ setBusy(true,'Membuat PDF…');
+ try{ const {jsPDF}=window.jspdf; const pdf=new jsPDF({unit:'mm',format:'a4',orientation:'landscape',compress:true});
  let pageNo=0;
  workbook.SheetNames.forEach((name,si)=>{
    if(si) pdf.addPage('a4','landscape');
@@ -80,6 +84,6 @@ document.getElementById('convert').addEventListener('click',()=>{
      didDrawPage:()=>{pageNo++;pdf.setFontSize(9);pdf.setTextColor(15,39,71);pdf.text(String(name).slice(0,90),7,10);pdf.setFontSize(7);pdf.setTextColor(100);pdf.text('Page '+pageNo,276,10);}
    });
  });
- pdf.save('excel-ke-pdf-smart.pdf');
+ pdf.save('excel-ke-pdf-smart.pdf'); setReady('Export PDF'); info.innerHTML='<div class="big">Selesai</div><div class="note">PDF berhasil dibuat dan siap diunduh.</div>'; }catch(err){setReady('Export PDF');info.innerHTML='<div class="note">Export gagal: '+esc(err.message||err)+'</div>';alert('Export PDF gagal: '+(err.message||err));}
 });
 </script></body></html>

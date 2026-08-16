@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="Konversi PDF digital menjadi Excel dengan struktur baris dan kolom yang lebih rapi.">
 <title>PDF → Excel — Indonesia Utility Tools</title>
-<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
 <header class="site-header"><div class="container nav">
@@ -16,34 +16,43 @@
 <div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF → Excel</h1><p>Ekstrak PDF digital menjadi Excel menggunakan Smart Conversion Engine yang mendeteksi header, posisi kolom, baris data, dan meneruskan struktur tabel antar halaman.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih PDF</label><input id="file" type="file" accept="application/pdf"></div>
-<div class="field"><label><input id="ocr" type="checkbox"> Aktifkan OCR untuk scan/foto PDF (otomatis jika struktur text tidak terbaca)</label></div>
+<div class="field"><label><input id="ocr" type="checkbox"> Aktifkan OCR untuk scan/foto PDF (hanya jika diaktifkan)</label></div>
 <div id="info" class="result"><div class="note">Gunakan PDF digital/text-based untuk hasil terbaik. PDF scan/foto membutuhkan OCR.</div></div>
-<button class="calc-btn" id="convert">Export Excel</button>
+<button class="calc-btn" id="convert" type="button" disabled>Export Excel</button>
 </div>
 <div class="tool-content"><h2>Catatan</h2><ul><li>Header tabel dan batas kolom dianalisis otomatis; tidak dikunci ke satu template PDF.</li><li>Struktur kolom diteruskan ke halaman berikutnya dan data dikelompokkan berdasarkan posisi.</li><li>PDF scan/foto tanpa text layer tidak dapat dibaca tanpa OCR.</li></ul></div>
 </div></main>
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
-<script src="/assets/converter-engine.js"></script>
+<script src="../assets/converter-engine.js"></script>
 <script>
 const pdfjs=window.pdfjsLib;
 if(pdfjs) pdfjs.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 let extracted=null;
+const depsOk=()=>!!(window.pdfjsLib&&window.XLSX&&window.IUConvert);
 const fileEl=document.getElementById('file'), info=document.getElementById('info'), btn=document.getElementById('convert');
+if(!depsOk()) info.innerHTML='<div class="note">Mesin belum siap. Pastikan koneksi internet aktif lalu refresh halaman.</div>';
 function esc(s){return String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function setBusy(busy,label){btn.disabled=busy;btn.classList.toggle('is-busy',busy);if(busy)btn.textContent=label||'Memproses…';}
+function setReady(label){btn.disabled=false;btn.classList.remove('is-busy');btn.textContent=label||'Export Excel';}
+function setIdle(label){btn.disabled=true;btn.classList.remove('is-busy');btn.textContent=label;}
 fileEl.addEventListener('change',async e=>{
  const f=e.target.files[0]; if(!f)return;
+ if(!depsOk()){ info.innerHTML='<div class="note">Library converter belum termuat. Refresh halaman dan pastikan internet aktif.</div>'; return; }
  info.innerHTML='<div class="note">Smart Engine membaca PDF, mencari header tabel, lalu membangun batas kolom otomatis…</div>'; extracted=null;
  try{
-   extracted=await IUConvert.extractPdf(pdfjs,f,{ocr:document.getElementById('ocr').checked,autoOcr:true,ocrLang:'eng',onOcrProgress:m=>{if(m.status==='recognizing text'&&m.progress) info.innerHTML='<div class="note">OCR sedang membaca halaman '+Math.round(m.progress*100)+'%…</div>';}});
+   extracted=await IUConvert.extractPdf(pdfjs,f,{ocr:document.getElementById('ocr').checked,autoOcr:false,ocrLang:'eng',onOcrProgress:m=>{if(m.status==='recognizing text'&&m.progress) info.innerHTML='<div class="note">OCR sedang membaca halaman '+Math.round(m.progress*100)+'%…</div>';}});
    const t=IUConvert.flattenTable(extracted);
+   const v=IUConvert.validate(extracted);
+   setReady('Export Excel');
    const rows=t.rows.length, cols=t.headers.length;
-   info.innerHTML='<div class="big">'+extracted.pages.length+' halaman • '+rows+' baris • '+cols+' kolom</div><div class="note">'+(extracted.usedOcr?'OCR aktif • ':'')+(t.headers.length?t.headers.join(' • '):'Tabel belum terdeteksi; hasil Raw Text tetap disertakan.')+'</div>';
- }catch(err){info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}
+   info.innerHTML='<div class="big">'+extracted.pages.length+' halaman • '+rows+' baris • '+cols+' kolom</div><div class="note">'+(extracted.usedOcr?'OCR aktif • ':'')+(t.headers.length?t.headers.join(' • '):'Tabel belum terdeteksi; Raw Text/Diagnostics tetap disertakan.')+' • Quality '+v.score+'%</div>';
+ }catch(err){setIdle('Export Excel'); extracted=null; info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}
 });
 btn.addEventListener('click',()=>{
+ if(!window.XLSX){alert('Library Excel belum termuat. Refresh halaman.');return;}
  if(!extracted){alert('Pilih PDF terlebih dahulu.');return;}
  const t=IUConvert.flattenTable(extracted), wb=XLSX.utils.book_new();
  const data=[t.headers,...t.rows];

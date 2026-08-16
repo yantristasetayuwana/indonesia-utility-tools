@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="Ubah DOCX menjadi PDF dengan rendering HTML agar heading, bold/italic, list, tabel, dan layout dasar lebih terjaga.">
 <title>Word → PDF — Indonesia Utility Tools</title>
-<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
 <header class="site-header"><div class="container nav">
@@ -18,7 +18,7 @@
 <div class="calculator-card">
 <div class="field"><label>Pilih dokumen Word (.docx)</label><input id="file" type="file" accept=".docx"></div>
 <div id="info" class="result"><div class="note">Pilih file DOCX untuk membaca isinya.</div></div>
-<button class="calc-btn" id="convert">Export PDF</button>
+<button class="calc-btn" id="convert" type="button" disabled>Export PDF</button>
 </div>
 <div class="tool-content"><h2>Catatan</h2><p>File diproses langsung di browser pada versi ini. Untuk hasil terbaik, gunakan dokumen digital yang tidak terenkripsi atau diproteksi password.</p></div>
 </div></main>
@@ -28,11 +28,14 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script>
 let docHtml='';
-const info=document.getElementById('info');
+const info=document.getElementById('info'), btn=document.getElementById('convert');
+function setBusy(busy,label){btn.disabled=busy;btn.classList.toggle('is-busy',busy);if(busy)btn.textContent=label||'Memproses…';}
+function setReady(label){btn.disabled=false;btn.classList.remove('is-busy');btn.textContent=label||'Export PDF';}
+function setIdle(label){btn.disabled=true;btn.classList.remove('is-busy');btn.textContent=label;}
 document.getElementById('file').addEventListener('change',async e=>{
- const f=e.target.files[0];if(!f)return;info.innerHTML='<div class="note">Membaca struktur Word dan menyiapkan layout…</div>';docHtml='';
- try{const r=await mammoth.convertToHtml({arrayBuffer:await f.arrayBuffer()});docHtml=r.value;info.innerHTML='<div class="big">'+f.name+'</div><div class="note">Dokumen berhasil dibaca. Format dasar, tabel, heading, bold/italic dan list akan dirender ke PDF.</div>';}
- catch(err){info.innerHTML='<div class="note">DOCX tidak dapat dibaca: '+String(err.message||err)+'</div>';}
+ const f=e.target.files[0];if(!f){docHtml='';setIdle('Export PDF');return;}setBusy(true,'Membaca DOCX…');info.innerHTML='<div class="note">Membaca struktur Word dan menyiapkan layout…</div>';docHtml='';
+ try{const r=await mammoth.convertToHtml({arrayBuffer:await f.arrayBuffer()});docHtml=r.value;setReady('Export PDF');info.innerHTML='<div class="big">'+f.name+'</div><div class="note">Dokumen berhasil dibaca. Format dasar, tabel, heading, bold/italic dan list akan dirender ke PDF.</div>';}
+ catch(err){docHtml='';setIdle('Export PDF');info.innerHTML='<div class="note">DOCX tidak dapat dibaca: '+String(err.message||err)+'</div>';}
 });
 document.getElementById('convert').addEventListener('click',async()=>{
  if(!docHtml){alert('Pilih file DOCX terlebih dahulu.');return;}
@@ -45,8 +48,8 @@ document.getElementById('convert').addEventListener('click',async()=>{
   box.querySelectorAll('img').forEach(img=>{img.style.maxWidth='100%';img.style.height='auto';});
   document.body.appendChild(box);
   await pdf.html(box,{x:15,y:12,width:180,windowWidth:900,autoPaging:'text',margin:[12,15,12,15],html2canvas:{scale:1.25,useCORS:true,backgroundColor:'#ffffff'},callback:doc=>doc.save('word-ke-pdf-smart.pdf')});
-  box.remove();
- }catch(err){alert('Gagal membuat PDF: '+(err.message||err));}
+  box.remove(); setReady('Export PDF'); info.innerHTML='<div class="big">Selesai</div><div class="note">PDF berhasil dibuat.</div>';
+ }catch(err){setReady('Export PDF');alert('Gagal membuat PDF: '+(err.message||err));}
 });
 </script>
 </body></html>

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="Gabungkan satu atau beberapa gambar JPG/PNG menjadi satu file PDF langsung di browser.">
 <title>JPG → PDF — Indonesia Utility Tools</title>
-<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
 <header class="site-header"><div class="container nav">
@@ -18,7 +18,7 @@
 <div class="calculator-card">
 <div class="field"><label>Pilih gambar</label><input id="files" type="file" accept="image/jpeg,image/png,image/webp" multiple></div>
 <div id="preview" class="result"><div class="note">Belum ada gambar dipilih.</div></div>
-<button class="calc-btn" id="make">Buat PDF</button>
+<button class="calc-btn" id="make" type="button" disabled>Buat PDF</button>
 <div id="status" class="result" style="display:none"></div>
 </div>
 <div class="tool-content"><h2>Catatan</h2><p>File diproses langsung di browser pada versi ini. Untuk hasil terbaik, gunakan dokumen digital yang tidak terenkripsi atau diproteksi password.</p></div>
@@ -26,8 +26,11 @@
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
-const fileInput=document.getElementById('files'), preview=document.getElementById('preview'), statusBox=document.getElementById('status');
-fileInput.addEventListener('change',()=>{preview.innerHTML=''; [...fileInput.files].forEach(f=>{const r=new FileReader();r.onload=e=>{const img=document.createElement('img');img.src=e.target.result;img.style.maxWidth='100%';img.style.maxHeight='180px';img.style.margin='6px';img.style.borderRadius='8px';preview.appendChild(img)};r.readAsDataURL(f)});});
+function setBusy(busy,label){btn.disabled=busy;btn.classList.toggle('is-busy',busy);if(busy)btn.textContent=label||'Memproses…';}
+function setReady(label){btn.disabled=false;btn.classList.remove('is-busy');btn.textContent=label;}
+function setIdle(label){btn.disabled=true;btn.classList.remove('is-busy');btn.textContent=label;}
+const fileInput=document.getElementById('files'), preview=document.getElementById('preview'), statusBox=document.getElementById('status'), btn=document.getElementById('make');
+fileInput.addEventListener('change',()=>{preview.innerHTML='';setIdle('Buat PDF'); [...fileInput.files].forEach(f=>{const r=new FileReader();r.onload=e=>{const img=document.createElement('img');img.src=e.target.result;img.style.maxWidth='100%';img.style.maxHeight='180px';img.style.margin='6px';img.style.borderRadius='8px';preview.appendChild(img)}; if(fileInput.files.length) setReady('Buat PDF');r.readAsDataURL(f)});});
 document.getElementById('make').addEventListener('click',async()=>{
  const files=[...fileInput.files]; if(!files.length){alert('Pilih gambar terlebih dahulu.');return;}
  const {jsPDF}=window.jspdf; let pdf=null;
