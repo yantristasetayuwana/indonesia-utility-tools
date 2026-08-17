@@ -16,7 +16,8 @@
 <div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF → Word</h1><p>Konversi PDF digital menjadi DOCX dengan Smart Conversion Engine; tabel terdeteksi dibuat sebagai tabel Word editable, bukan sekadar teks acak.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih PDF</label><input id="file" type="file" accept="application/pdf"></div>
-<div class="field"><label><input id="ocr" type="checkbox"> Aktifkan OCR untuk scan/foto PDF (hanya jika diaktifkan)</label></div>
+<div class="field"><label><input id="ocr" type="checkbox"> Aktifkan OCR untuk scan/foto PDF</label></div>
+<div class="field"><label><input id="aiRepair" type="checkbox"> Gunakan AI Repair untuk tabel jika diperlukan</label></div>
 <div id="info" class="result"><div class="note">PDF digital dapat diproses langsung. Untuk scan/foto, centang OCR.</div></div>
 <button class="calc-btn" id="convert" type="button" disabled>Export Word</button>
 </div>
@@ -39,7 +40,7 @@ function setIdle(label){btn.disabled=true;btn.classList.remove('is-busy');btn.te
 fileEl.addEventListener('change',async e=>{
  const f=e.target.files[0];if(!f){extracted=null;setIdle('Export Word');return;}setBusy(true,'Membaca PDF…');
  if(!depsOk()){setIdle('Export Word');info.innerHTML='<div class="note">Library converter belum termuat. Refresh halaman dan pastikan internet aktif.</div>';return;}info.innerHTML='<div class="note">Smart Engine membaca struktur PDF…</div>';extracted=null;
- try{extracted=await IUConvert.extractPdf(pdfjs,f,{ocr:document.getElementById('ocr').checked,autoOcr:false,ocrLang:'eng',onOcrProgress:m=>{if(m.status==='recognizing text'&&m.progress) info.innerHTML='<div class="note">OCR membaca halaman: '+Math.round(m.progress*100)+'%…</div>';}});const t=IUConvert.flattenTable(extracted);setReady('Export Word');info.innerHTML='<div class="big">'+extracted.pages.length+' halaman • '+t.rows.length+' baris</div><div class="note">'+(extracted.usedOcr?'OCR aktif • ':'')+(t.headers.length?'Tabel terdeteksi dan akan dibuat sebagai tabel Word editable.':'Teks akan dibuat sebagai paragraf editable.')+'</div>';}
+ try{const result=await IUConvert.smartExtractPdf(pdfjs,f,{ocr:document.getElementById('ocr').checked,aiRepair:document.getElementById('aiRepair').checked,aiThreshold:88,aiEndpoint:'/api/ai-repair',ocrLang:'eng',onOcrProgress:m=>{if(m.status==='recognizing text'&&m.progress) info.innerHTML='<div class="note">OCR membaca halaman: '+Math.round(m.progress*100)+'%…</div>';}});extracted=result.extracted;const t=IUConvert.flattenTable(extracted);setReady('Export Word');info.innerHTML='<div class="big">'+extracted.pages.length+' halaman • '+t.rows.length+' baris</div><div class="note">'+(extracted.usedOcr?'OCR aktif • ':'')+(t.headers.length?'Tabel terdeteksi dan akan dibuat sebagai tabel Word editable.':'Teks akan dibuat sebagai paragraf editable.')+'</div>';}
  catch(err){setIdle('Export Word'); extracted=null; info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}
 });
 document.getElementById('convert').addEventListener('click',async()=>{
