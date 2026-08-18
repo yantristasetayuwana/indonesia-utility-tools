@@ -2,9 +2,9 @@
 <html lang="id">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Konversi PDF digital menjadi Excel dengan struktur baris dan kolom yang lebih rapi.">
+<meta name="description" content="Konversi PDF ke Excel dengan Smart Anchor Parser, struktur tabel lintas halaman, dan OCR fallback.">
 <title>PDF → Excel — Indonesia Utility Tools</title>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
 <header class="site-header"><div class="container nav">
@@ -13,64 +13,119 @@
 </div></header>
 <main class="tool-page"><div class="container tool-shell">
 <a class="back" href="../index.html">← Kembali ke semua tools</a>
-<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF → Excel</h1><p>Ekstrak PDF digital menjadi Excel menggunakan Smart Conversion Engine yang mendeteksi header, posisi kolom, baris data, dan meneruskan struktur tabel antar halaman.</p></div>
+<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF → Excel</h1>
+<p>Smart Anchor Parser membaca struktur tabel berdasarkan posisi kolom, meneruskan schema antar halaman, mempertahankan header/footer asli dan teks sumber, dan menyediakan OCR fallback.</p></div>
 <div class="calculator-card">
 <div class="field"><label>Pilih PDF</label><input id="file" type="file" accept="application/pdf"></div>
-<div class="field"><label><input id="ocr" type="checkbox"> Aktifkan OCR untuk scan/foto PDF</label></div>
-<div class="field"><label><input id="aiRepair" type="checkbox"> Gunakan AI Repair jika hasil parser perlu dirapikan</label><small class="note">AI hanya memindahkan nilai yang salah kolom; tidak boleh mengarang data. Membutuhkan endpoint AI di Cloudflare.</small></div>
-<div id="info" class="result"><div class="note">Gunakan PDF digital/text-based untuk hasil terbaik. PDF scan/foto membutuhkan OCR.</div></div>
-<button class="calc-btn" id="convert" type="button" disabled>Export Excel</button>
+<div class="field"><label><input id="ocr" type="checkbox"> Pakai OCR untuk scan/foto PDF</label></div>
+<div id="info" class="result"><div class="note">Pilih PDF untuk mulai membaca struktur tabel.</div></div>
+<button class="calc-btn" id="convert" disabled>Export Excel</button>
 </div>
-<div class="tool-content"><h2>Catatan</h2><ul><li>Header tabel dan batas kolom dianalisis otomatis; tidak dikunci ke satu template PDF.</li><li>Struktur kolom diteruskan ke halaman berikutnya dan data dikelompokkan berdasarkan posisi.</li><li>PDF scan/foto tanpa text layer tidak dapat dibaca tanpa OCR.</li></ul></div>
-</div></main>
+<div class="tool-content"><h2>Catatan</h2>
+<ul><li>Tidak dikunci ke satu template laporan.</li><li>Kolom ditentukan dari anchor header dan dipakai kembali pada halaman berikutnya.</li><li>Header, footer, dan baris yang berada dekat footer tidak dibuang; salinan teks/layout sumber juga disertakan di workbook.</li><li>Jika hasil text-layer tidak cukup, OCR dapat digunakan sebagai fallback.</li></ul>
+</div></div></main>
 <footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
-<script src="../assets/converter-engine.js"></script>
+<script src="/assets/converter-engine.js"></script>
 <script>
 const pdfjs=window.pdfjsLib;
 if(pdfjs) pdfjs.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const fileEl=document.getElementById('file'), info=document.getElementById('info'), btn=document.getElementById('convert'), ocr=document.getElementById('ocr');
 let extracted=null;
-const depsOk=()=>!!(window.pdfjsLib&&window.XLSX&&window.IUConvert);
-const fileEl=document.getElementById('file'), info=document.getElementById('info'), btn=document.getElementById('convert');
-if(!depsOk()) info.innerHTML='<div class="note">Mesin belum siap. Pastikan koneksi internet aktif lalu refresh halaman.</div>';
-function esc(s){return String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-function setBusy(busy,label){btn.disabled=busy;btn.classList.toggle('is-busy',busy);if(busy)btn.textContent=label||'Memproses…';}
-function setReady(label){btn.disabled=false;btn.classList.remove('is-busy');btn.textContent=label||'Export Excel';}
-function setIdle(label){btn.disabled=true;btn.classList.remove('is-busy');btn.textContent=label;}
-fileEl.addEventListener('change',async e=>{
- const f=e.target.files[0]; if(!f)return;
- if(!depsOk()){ info.innerHTML='<div class="note">Library converter belum termuat. Refresh halaman dan pastikan internet aktif.</div>'; return; }
- info.innerHTML='<div class="note">Smart Engine membaca PDF, mencari header tabel, lalu membangun batas kolom otomatis…</div>'; extracted=null;
- try{
-   const useAI=document.getElementById('aiRepair').checked; const result=await IUConvert.smartExtractPdf(pdfjs,f,{ocr:document.getElementById('ocr').checked,aiRepair:useAI,aiThreshold:88,aiEndpoint:'/api/ai-repair',ocrLang:'eng',onOcrProgress:m=>{if(m.status==='recognizing text'&&m.progress) info.innerHTML='<div class="note">OCR sedang membaca halaman '+Math.round(m.progress*100)+'%…</div>';}}); extracted=result.extracted;
-   const t=IUConvert.flattenTable(extracted);
-   const v=IUConvert.validate(extracted);
-   setReady('Export Excel');
-   const rows=t.rows.length, cols=t.headers.length;
-   info.innerHTML='<div class="big">'+extracted.pages.length+' halaman • '+rows+' baris • '+cols+' kolom</div><div class="note">'+(extracted.usedOcr?'OCR aktif • ':'')+(extracted.aiRepaired?'AI Repair aktif • ':'')+(extracted.aiError?'AI tidak tersedia — parser lokal tetap digunakan • ':'')+(t.headers.length?t.headers.join(' • '):'Tabel belum terdeteksi; Raw Text/Diagnostics tetap disertakan.')+' • Quality '+result.validation.score+'%</div>';
- }catch(err){setIdle('Export Excel'); extracted=null; info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err.message||err)+'</div>';}
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+fileEl.addEventListener('change',async()=>{
+  const f=fileEl.files[0]; extracted=null; btn.disabled=true;
+  if(!f)return;
+  info.innerHTML='<div class="note">Membaca PDF dan mendeteksi anchor kolom…</div>';
+  try{
+    extracted=await IUConvert.extractPdf(pdfjs,f,{
+      ocr:ocr.checked,autoOcr:true,ocrLang:'eng',
+      onOcrProgress:m=>{
+        if(m.status==='recognizing text'&&m.progress)
+          info.innerHTML='<div class="note">OCR: '+Math.round(m.progress*100)+'%</div>';
+      }
+    });
+    const t=IUConvert.flattenTable(extracted);
+    const nums=t.rows.map(r=>Number(r[0])).filter(Number.isFinite);
+    const last=nums.length?Math.max(...nums):0;
+    const complete=last===t.rows.length && last>0;
+    info.innerHTML='<div class="big">'+extracted.pages.length+' halaman • '+t.rows.length+' baris • '+t.headers.length+' kolom</div>'+
+      '<div class="note">'+
+      (extracted.usedOcr?'OCR digunakan • ':'')+
+      (complete?'Validasi nomor baris PASS • ':'Validasi nomor baris perlu diperiksa • ')+
+      (t.headers.length?t.headers.join(' • '):'Tabel belum terdeteksi')+
+      '</div>';
+    if(t.headers.length && t.rows.length){btn.disabled=false;}
+  }catch(err){
+    info.innerHTML='<div class="note">Gagal membaca PDF: '+esc(err?.message||err)+'</div>';
+  }
 });
 btn.addEventListener('click',()=>{
- if(!window.XLSX){alert('Library Excel belum termuat. Refresh halaman.');return;}
- if(!extracted){alert('Pilih PDF terlebih dahulu.');return;}
- const t=IUConvert.flattenTable(extracted), wb=XLSX.utils.book_new();
- const roles=extracted.schema?.roles||[];
- const numericCols=[roles.indexOf('no'),roles.indexOf('gross'),roles.indexOf('tara'),roles.indexOf('netto')].filter(i=>i>=0);
- const data=[t.headers,...t.rows.map(r=>r.map((v,i)=>numericCols.includes(i)&&v!==''&&IUConvert.isNumber(v)?Number(String(v).replace(/,/g,'')):v))];
- const ws=XLSX.utils.aoa_to_sheet(data);
- ws['!freeze']={xSplit:0,ySplit:1};
- ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:Math.max(0,data.length-1),c:Math.max(0,t.headers.length-1)}})};
- ws['!cols']=t.headers.map((h,i)=>({wch:Math.min(42,Math.max(10,Math.max(String(h).length,...t.rows.slice(0,200).map(r=>String(r[i]||'').length))*1.05))}));
- if(data.length) ws['!rows']=[{hpt:22}];
- numericCols.forEach(c=>{for(let r=1;r<data.length;r++){const cell=ws[XLSX.utils.encode_cell({r,c})];if(cell&&typeof cell.v==='number')cell.z=(c===roles.indexOf('no')?'0':'0.000')}});
- if(data.length) ws['A1'].s={font:{bold:true}};
- XLSX.utils.book_append_sheet(wb,ws,'Converted Table');
- const raw=[['Halaman','Mode','Teks']]; extracted.pages.forEach(p=>(p.ocrRawLines||p.rawLines||[]).forEach(line=>raw.push([p.page,p.mode,line])));
- const wr=XLSX.utils.aoa_to_sheet(raw); wr['!cols']=[{wch:10},{wch:10},{wch:120}]; XLSX.utils.book_append_sheet(wb,wr,'Raw Text');
- const diag=[['Metric','Value'],['Pages',extracted.pages.length],['Detected columns',t.headers.length],['Detected data rows',t.rows.length],['OCR used',extracted.usedOcr?'YES':'NO'],['Engine','Smart Document Conversion Engine v2.1 Hybrid + AI-ready'],['AI repaired',extracted.aiRepaired?'YES':(extracted.aiError?'FAILED / LOCAL FALLBACK':'NO')]];
- const wd=XLSX.utils.aoa_to_sheet(diag); wd['!cols']=[{wch:24},{wch:55}]; XLSX.utils.book_append_sheet(wb,wd,'Diagnostics');
- XLSX.writeFile(wb,'pdf-ke-excel-smart.xlsx');
+  if(!extracted)return;
+  const t=IUConvert.flattenTable(extracted);
+  const wb=XLSX.utils.book_new();
+  const data=[t.headers,...t.rows];
+  const ws=XLSX.utils.aoa_to_sheet(data);
+  ws['!freeze']={xSplit:0,ySplit:1};
+  if(data.length&&t.headers.length) ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:data.length-1,c:t.headers.length-1}})};
+  ws['!cols']=t.headers.map((h,i)=>({wch:Math.min(48,Math.max(10,Math.max(String(h).length,...t.rows.slice(0,300).map(r=>String(r[i]||'').length))*1.05))}));
+  XLSX.utils.book_append_sheet(wb,ws,'Converted Table');
+
+  const raw=[['Halaman','Mode','Area','Teks']];
+  extracted.pages.forEach(p=>{
+    const headers=new Set(p.pageHeaderLines||[]), footers=new Set(p.pageFooterLines||[]);
+    (p.ocrRawLines||p.rawLines||[]).forEach(line=>{
+      const area=headers.has(line)?'HEADER':(footers.has(line)?'FOOTER':'BODY');
+      raw.push([p.page,p.mode,area,line]);
+    });
+  });
+  const wr=XLSX.utils.aoa_to_sheet(raw); wr['!cols']=[{wch:10},{wch:10},{wch:12},{wch:140}];
+  XLSX.utils.book_append_sheet(wb,wr,'Raw Text');
+
+  // Preserve the source page header/footer separately so conversion never
+  // sacrifices source content merely to clean the table.
+  const hf=[['Halaman','Area','Teks']];
+  extracted.pages.forEach(p=>{
+    (p.pageHeaderLines||[]).forEach(line=>hf.push([p.page,'HEADER',line]));
+    (p.pageFooterLines||[]).forEach(line=>hf.push([p.page,'FOOTER',line]));
+  });
+  const wh=XLSX.utils.aoa_to_sheet(hf); wh['!cols']=[{wch:10},{wch:12},{wch:140}];
+  XLSX.utils.book_append_sheet(wb,wh,'PDF Header Footer');
+
+  // Layout approximation: keep every source line in its page order, including
+  // header/footer. This is a preservation sheet, while Converted Table remains
+  // the clean structured data sheet.
+  const layout=[['Halaman','Y','Area','Teks']];
+  extracted.pages.forEach(p=>{
+    const ys=(p.layoutLines||[]).map(l=>l.y), top=Math.max(...ys,0), bottom=Math.min(...ys,0), span=Math.max(1,top-bottom);
+    const hc=top-span*0.16, fc=bottom+span*0.14;
+    (p.layoutLines||[]).forEach(l=>{
+      const text=IUConvert.clean((l.items||[]).map(i=>i.text).join(' '));
+      if(!text)return;
+      const area=l.y>=hc?'HEADER':(l.y<=fc?'FOOTER':'BODY');
+      layout.push([p.page,Math.round(l.y*100)/100,area,text]);
+    });
+  });
+  const wl=XLSX.utils.aoa_to_sheet(layout); wl['!cols']=[{wch:10},{wch:12},{wch:12},{wch:140}];
+  XLSX.utils.book_append_sheet(wb,wl,'Original Layout');
+
+  const nums=t.rows.map(r=>Number(r[0])).filter(Number.isFinite);
+  const diag=[
+    ['Metric','Value'],
+    ['Pages',extracted.pages.length],
+    ['Detected columns',t.headers.length],
+    ['Detected data rows',t.rows.length],
+    ['First row number',nums.length?Math.min(...nums):''],
+    ['Last row number',nums.length?Math.max(...nums):''],
+    ['Sequence validation',nums.length===t.rows.length&&Math.max(...nums)===t.rows.length?'PASS':'CHECK'],
+    ['OCR used',extracted.usedOcr?'YES':'NO'],
+    ['Engine','Smart Anchor Parser v2.2 + OCR + Source Header/Footer Preservation']
+  ];
+  const wd=XLSX.utils.aoa_to_sheet(diag); wd['!cols']=[{wch:28},{wch:60}];
+  XLSX.utils.book_append_sheet(wb,wd,'Diagnostics');
+  XLSX.writeFile(wb,'pdf-ke-excel-smart-v2.2-preserve-layout.xlsx');
 });
-</script></body></html>
+</script>
+</body></html>
