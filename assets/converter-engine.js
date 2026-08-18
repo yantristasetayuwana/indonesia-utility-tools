@@ -1,82 +1,296 @@
-/* Indonesia Utility Tools — Smart Document Conversion Engine v2.1
- * Hybrid document reconstruction engine:
- * 1) PDF text extraction
- * 2) geometry + semantic parsing
- * 3) row repair / validation
- * 4) optional AI repair through Cloudflare Pages Function
- * 5) output adapters
+/* Indonesia Utility Tools — Smart Document Conversion Engine v2.2
+ * Generic anchor-based table reconstruction.
+ * - Detects a real table header from PDF geometry
+ * - Builds column bands from header anchors
+ * - Reuses the first reliable schema across pages
+ * - Preserves page headers/footers and all source text
+ * - Keeps long company/supplier text inside the correct column
+ * - OCR fallback using Tesseract.js
  */
 (function(global){
-'use strict';
-const H={no:'no',ticket:'ticket',truck:'truck',in:'in',out:'out',gross:'gross',tara:'tara',netto:'netto',subleader:'subleader',leader:'leader'};
-const HEADER_WORDS=new Set(['no','no.','number','id','date','tanggal','time','waktu','ticket','no.ticket','no.truck','truck','vehicle','item','description','desc','qty','quantity','unit','price','amount','total','subtotal','gross','gross(ton)','netto','net','netto(ton)','tara','tara(ton)','in','out','leader','sub','name','supplier','customer','status','code','kode','part','product','po','grn','transfer','requester','location','warehouse','category','alamat','phone','email','terima','pcs']);
-const COMPOUNDS=new Set(['sub leader','no ticket','no truck','invoice no','item code','unit price','grand total','net amount','gross weight','tare weight','no. po','no. grn','no. transfer','part number','qty terima','date time','start date','end date','unit cost','total amount','phone number']);
-function clean(s){return String(s??'').replace(/[\u0000-\u001F]+/g,' ').replace(/\s+/g,' ').trim()}
-function num(v,d=0){const n=Number(v);return Number.isFinite(n)?n:d}
-function norm(s){return clean(s).toLowerCase().replace(/[,:;]+$/,'')}
-function groupLines(items,yTol=2.6){
- const lines=[]; for(const raw of (items||[])){const text=clean(raw.str??raw.text);if(!text)continue;const x=num(raw.x??raw.transform?.[4]);const y=num(raw.y??raw.transform?.[5]);const h=Math.abs(num(raw.h??raw.height??raw.transform?.[3],10))||10;const w=Math.max(0,num(raw.w??raw.width));let l=lines.find(q=>Math.abs(q.y-y)<=Math.max(yTol,h*.32));if(!l){l={y,items:[]};lines.push(l)}l.items.push({x,y,w,h,text})}
- lines.sort((a,b)=>b.y-a.y);for(const l of lines)l.items.sort((a,b)=>a.x-b.x);return lines;
-}
-function lineText(line){return clean((line.items||[]).map(x=>x.text).join(' '))}
-function headerScore(line){const ts=norm(lineText(line)).split(/\s+/).filter(Boolean);const hits=ts.filter(t=>HEADER_WORDS.has(t)).length;return hits*5+Math.min((line.items||[]).length,14)*.35-ts.filter(t=>/^\d+$/.test(t)).length*1.5}
-function findHeader(lines){let best=null,bs=0;const lim=Math.max(1,Math.floor(lines.length*.6));for(let i=0;i<Math.min(lines.length,lim);i++){const s=headerScore(lines[i]);if(s>bs){bs=s;best={index:i,line:lines[i],score:s}}}return best&&best.score>=5?best:null}
-function expandHeaderItems(items){const known=['No.Ticket','No.Truck','Gross(Ton)','Tarra(Ton)','Netto(Ton)','Sub Leader','No.','No','Out','In','Leader'];const out=[];for(const raw of (items||[])){const text=clean(raw.text);const low=text.toLowerCase();let matches=[];for(const k of known){let pos=0;const kl=k.toLowerCase();while((pos=low.indexOf(kl,pos))>=0){matches.push({k,pos});pos+=kl.length}}matches.sort((a,b)=>a.pos-b.pos||b.k.length-a.k.length);const used=[];for(const m of matches){if(used.some(u=>m.pos<u.end&&m.pos+m.k.length>u.start))continue;used.push({start:m.pos,end:m.pos+m.k.length,k:m.k});}if(used.length>1||(!known.some(k=>k.toLowerCase()===low)&&used.length===1&&used[0].k.toLowerCase()!==low)){for(const u of used){const ratio=u.start/Math.max(1,text.length);const ratio2=u.end/Math.max(1,text.length);out.push({...raw,text:u.k,x:raw.x+raw.w*ratio,w:Math.max(1,raw.w*(ratio2-ratio))})}}else out.push({...raw});}return out}
-function makeCenters(headerLine){const a=expandHeaderItems(headerLine.items||[]).slice().sort((x,y)=>x.x-y.x);if(!a.length)return[];const gaps=[];for(let i=1;i<a.length;i++)gaps.push(Math.max(0,a[i].x-(a[i-1].x+a[i-1].w)));const med=gaps.length?gaps.slice().sort((x,y)=>x-y)[Math.floor(gaps.length/2)]:0;const merge=Math.max(12,med*.8),m=[];for(const it of a){const last=m[m.length-1],gap=last?Math.max(0,it.x-(last.x+last.w)):Infinity,c=last?norm(last.text+' '+it.text):'';if(last&&COMPOUNDS.has(c)&&gap<=merge){last.text=clean(last.text+' '+it.text);last.w=it.x+it.w-last.x}else m.push({...it})}return m.map(x=>({label:x.text,center:x.x+Math.max(1,x.w)/2,x:x.x,w:x.w}))}
-function boundaries(c){const b=[];for(let i=0;i<c.length-1;i++)b.push((c[i].center+c[i+1].center)/2);return b}
-function assignLine(line,c,b){const cells=Array.from({length:c.length},()=>[]);for(const it of line.items||[]){const xc=it.x+Math.max(0,it.w)/2;let i=0;while(i<b.length&&xc>=b[i])i++;cells[i].push(it.text)}return cells.map(clean)}
-function looksLikeDataRow(c){const s=clean(c[0]);return /^\d{1,7}$/.test(s)||/^[A-Z]{1,12}[-_/]?[A-Z0-9]{2,}/i.test(s)||/^\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}$/.test(s)||/^\d{1,2}:\d{2}/.test(s)||c.filter(Boolean).length>=3}
-function normalizeHeaderLabel(s){const x=norm(s).replace(/[()]/g,' ').replace(/\s+/g,' ');if(/^(no|number|nomor)$/.test(x))return H.no;if(x.includes('ticket'))return H.ticket;if(x.includes('truck')||x.includes('vehicle'))return H.truck;if(x==='in'||x.includes('in time'))return H.in;if(x==='out'||x.includes('out time'))return H.out;if(x.includes('gross'))return H.gross;if(x.includes('tara')||x.includes('tarra')||x.includes('tare'))return H.tara;if(x.includes('netto')||x==='net'||x.includes('net weight'))return H.netto;if(x.includes('sub')&&x.includes('leader'))return H.subleader;if(x==='leader'||x.includes('leader'))return H.leader;return x}
-function schemaRoles(headers){return headers.map(normalizeHeaderLabel)}
-function tokenizeLine(s){return clean(s).split(/\s+/).filter(Boolean)}
-function isTime(s){return /^([01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(s)}
-function isNumber(s){return /^-?(?:\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)$/.test(s)}
-function isTicket(s){return /^[A-Z]{1,8}\d{5,}[A-Z0-9_-]*$/i.test(s)||/^(?:TLP|TO|TR|TK|INV|DO)[A-Z0-9_-]+$/i.test(s)}
-function isPlate(s){return /^(?:[A-Z]{1,3}\d{1,5}[A-Z]{0,4}|\d{1,4}[A-Z]{1,3})$/i.test(s)}
-function repairMolassesLike(tokens,roles){
- // Semantic fallback for common weighbridge rows. It is intentionally pattern-based,
- // not tied to company names or fixed ticket numbers.
- let i=0;if(!/^\d{1,7}$/.test(tokens[i]||''))return null;const out=Array(roles.length).fill('');out[roles.indexOf(H.no)] = tokens[i++];
- const ticketIdx=roles.indexOf(H.ticket),truckIdx=roles.indexOf(H.truck),inIdx=roles.indexOf(H.in),outIdx=roles.indexOf(H.out),grossIdx=roles.indexOf(H.gross),taraIdx=roles.indexOf(H.tara),netIdx=roles.indexOf(H.netto);
- if(ticketIdx>=0&&tokens[i]&&isTicket(tokens[i]))out[ticketIdx]=tokens[i++]; else return null;
- if(truckIdx>=0){let plate='';if(tokens[i]&&isPlate(tokens[i])){plate=tokens[i++];if(tokens[i]&&/^[A-Z]{1,3}$/.test(tokens[i])&&/^[A-Z]{1,3}\d{1,5}$/.test(plate))plate+=' '+tokens[i++];}else return null;out[truckIdx]=plate;}
- if(inIdx>=0&&isTime(tokens[i]||''))out[inIdx]=tokens[i++]; else return null;
- if(outIdx>=0&&isTime(tokens[i]||''))out[outIdx]=tokens[i++]; else return null;
- const nums=[];while(i<tokens.length&&nums.length<3&&isNumber(tokens[i]))nums.push(tokens[i++]);if(nums.length<3)return null;
- if(grossIdx>=0)out[grossIdx]=nums[0];if(taraIdx>=0)out[taraIdx]=nums[1];if(netIdx>=0)out[netIdx]=nums[2];
- // Remaining company text: split when two identical/related trailing names are present.
- const rest=tokens.slice(i).join(' ');const leaderRoles=[roles.indexOf(H.subleader),roles.indexOf(H.leader)].filter(x=>x>=0);
- if(leaderRoles.length){if(rest){const parts=splitCompanyPair(rest);if(roles.indexOf(H.subleader)>=0)out[roles.indexOf(H.subleader)]=parts[0];if(roles.indexOf(H.leader)>=0)out[roles.indexOf(H.leader)]=parts[1]||parts[0]}}
- return out;
-}
-function splitCompanyPair(s){const x=clean(s);if(!x)return['',''];const markers=[' PT. ',' CV. ',' UD. ',' PT ',' CV ',' UD '];for(const m of markers){const p=x.indexOf(m,1);if(p>0)return[clean(x.slice(0,p)),clean(x.slice(p+1))]}const words=x.split(/\s+/);if(words.length>=4){for(let k=2;k<=words.length-2;k++){const a=words.slice(0,k).join(' '),b=words.slice(k).join(' ');if(a===b)return[a,b]}}return[x,'']}
-function refineCenters(lines,headerIndex,centers){if(!centers||centers.length<2)return centers;const seed=boundaries(centers),samples=[];for(let i=Math.max(0,headerIndex+1);i<lines.length&&samples.length<300;i++){const c=assignLine(lines[i],centers,seed);if(looksLikeDataRow(c)){for(let k=0;k<centers.length;k++){const xs=(lines[i].items||[]).filter(it=>{const xc=it.x+Math.max(0,it.w)/2;let j=0;while(j<seed.length&&xc>=seed[j])j++;return j===k}).map(it=>it.x+Math.max(0,it.w)/2);if(xs.length)samples.push({k,x:xs[Math.floor(xs.length/2)]})}}}return centers.map((c,k)=>{const v=samples.filter(s=>s.k===k).map(s=>s.x).sort((a,b)=>a-b);return v.length>=3?{...c,center:c.center*.25+v[Math.floor(v.length/2)]*.75}:c}).sort((a,b)=>a.center-b.center)}
-function reconstructPage(items,schema){
- const lines=groupLines(items),found=findHeader(lines);let centers=schema?.centers||null,headers=schema?.headers||null,hi=found?.index??-1;
- if(found){centers=makeCenters(found.line);headers=centers.map(x=>x.label);hi=found.index;centers=refineCenters(lines,hi,centers)}
- if(!centers||centers.length<2)return{headers:headers||[],rows:[],rawLines:lines.map(lineText),schema:schema||null,quality:0,headerIndex:hi};
- const roles=schemaRoles(headers),b=boundaries(centers),rows=[];let semantic=0,geometry=0;
- for(let i=Math.max(0,hi+1);i<lines.length;i++){
-  const text=lineText(lines[i]);if(!text||/^page\s*:/i.test(text)||/^total\b/i.test(text))continue;
-  const sem=repairMolassesLike(tokenizeLine(text),roles);
-  if(sem){rows.push(sem);semantic++;continue}
-  const cells=assignLine(lines[i],centers,b);const row0=clean(cells[0]);const ticketCell=roles.indexOf(H.ticket)>=0?clean(cells[roles.indexOf(H.ticket)]):'';const rowOk=roles.includes(H.no)?/^\d{1,7}$/.test(row0):ticketCell?isTicket(ticketCell):looksLikeDataRow(cells);if(rowOk){rows.push(cells);geometry++}
- }
- const nonEmpty=rows.filter(r=>r.filter(Boolean).length>=2).length;const quality=Math.min(100,(headers.length>=3?30:10)+Math.min(40,nonEmpty*1.5)+Math.min(25,semantic*1.5)+(geometry?10:0));
- return{headers,roles,rows,rawLines:lines.map(lineText),schema:{headers,roles,centers},quality,headerIndex:hi,stats:{semanticRows:semantic,geometryRows:geometry}};
-}
-async function extractPdf(pdfjs,file,opts={}){
- if(!pdfjs?.getDocument)throw new Error('PDF.js belum termuat.');if(!file)throw new Error('File PDF belum dipilih.');
- const pdf=await pdfjs.getDocument({data:await file.arrayBuffer(),useWorkerFetch:true,isEvalSupported:true}).promise;const pages=[];let schema=null,textQuality=0,textErrors=0;
- for(let p=1;p<=pdf.numPages;p++){try{const page=await pdf.getPage(p);const c=await page.getTextContent({normalizeWhitespace:false,disableCombineTextItems:false});const r=reconstructPage(c.items,schema);if(r.schema&&r.quality>=35){schema=r.schema;textQuality+=r.quality}pages.push({page:p,...r,mode:'text',error:null})}catch(e){textErrors++;pages.push({page:p,headers:schema?.headers||[],rows:[],rawLines:[],schema,quality:0,mode:'text',error:String(e?.message||e)})}}
- if(opts.ocr===true){if(!global.Tesseract?.recognize)throw new Error('OCR engine belum termuat. Pastikan koneksi internet aktif lalu refresh halaman.');for(const p of pages){try{const page=await pdf.getPage(p.page),base=page.getViewport({scale:1}),scale=Math.min(2.6,Math.max(1.7,1700/Math.max(1,base.width))),vp=page.getViewport({scale}),canvas=document.createElement('canvas');canvas.width=Math.ceil(vp.width);canvas.height=Math.ceil(vp.height);const ctx=canvas.getContext('2d',{willReadFrequently:true});await page.render({canvasContext:ctx,viewport:vp}).promise;const r=await global.Tesseract.recognize(canvas,opts.ocrLang||'eng',{logger:opts.onOcrProgress});const words=(r.data.words||[]).filter(w=>clean(w.text));const items=words.map(w=>({text:clean(w.text),x:w.bbox.x0,y:vp.height-w.bbox.y1,w:w.bbox.x1-w.bbox.x0,h:w.bbox.y1-w.bbox.y0}));const o=reconstructPage(items,p.schema||schema);p.ocrRawLines=o.rawLines;p.ocrConfidence=Number(r.data.confidence||0);if(o.rows.length>p.rows.length||(!p.rows.length&&o.rawLines.length)){Object.assign(p,o,{mode:'ocr'})}canvas.width=1;canvas.height=1}catch(e){p.ocrError=String(e?.message||e)}}}
- return{pdf,pages,schema,usedOcr:pages.some(p=>p.mode==='ocr'),textQuality,textErrors,ocrRequested:opts.ocr===true};
-}
-function flattenTable(extracted){const headers=extracted?.schema?.headers||extracted?.pages?.find(p=>p.headers?.length)?.headers||[];const rows=[];for(const p of extracted?.pages||[])for(const r of p.rows||[])rows.push(r.concat(Array(Math.max(0,headers.length-r.length)).fill('')).slice(0,headers.length));return{headers,rows}}
-function rawText(extracted){const out=[];for(const p of extracted?.pages||[])for(const line of(p.ocrRawLines||p.rawLines||[]))if(clean(line))out.push([p.page,p.mode,clean(line)]);return out}
-function validate(extracted){const t=flattenTable(extracted),expected=t.headers.length,roles=extracted?.schema?.roles||[],issues=[];if(expected<2)issues.push('Header tabel belum terdeteksi.');if(!t.rows.length)issues.push('Belum ada baris data.');const bad=t.rows.filter(r=>r.filter(Boolean).length<Math.max(2,Math.ceil(expected*.4))).length;if(bad)issues.push(bad+' baris memiliki isi terlalu sedikit.');const rate=(role,fn)=>{const idx=roles.indexOf(role);if(idx<0||!t.rows.length)return 1;return t.rows.filter(r=>fn(clean(r[idx]||''))).length/t.rows.length};const checks=[['no',x=>/^\d{1,7}$/.test(x)],['ticket',isTicket],['truck',x=>isPlate(x)||/^[A-Z]{1,3}\d{1,5}\s+[A-Z]{1,3}$/i.test(x)],['in',isTime],['out',isTime],['gross',isNumber],['tara',isNumber],['netto',isNumber]];let semanticScore=0,semanticCount=0;for(const [role,fn] of checks){const idx=roles.indexOf(role);if(idx>=0){const r=rate(role,fn);semanticScore+=r;semanticCount++;if(r<.75)issues.push('Kolom '+role+' memiliki nilai yang tampak bergeser/tidak sesuai.')}}const completeness=t.rows.length?Math.max(0,1-bad/t.rows.length):0;const sem=semanticCount?semanticScore/semanticCount:1;const score=Math.max(0,Math.min(100,(expected>=2?25:5)+(t.rows.length?25:0)+completeness*20+sem*30));return{validHeader:expected>=2,rows:t.rows.length,columns:expected,issues,score:Math.round(score),semanticScore:Math.round(sem*100),needsAi:issues.length>0||score<88}}
-async function aiRepair(extracted,endpoint='/api/ai-repair',opts={}){
- if(!endpoint)throw new Error('AI endpoint belum dikonfigurasi.');const t=flattenTable(extracted);const payload={headers:t.headers,roles:extracted?.schema?.roles||[],rows:t.rows.slice(0,250),rawText:rawText(extracted).slice(0,500),instruction:'Repair table rows conservatively. Preserve source values. Return JSON only: {rows:[[...]]}. Do not invent missing values. Keep exactly the same number and order of columns.'};const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:opts.signal});if(!r.ok)throw new Error('AI repair HTTP '+r.status);const j=await r.json();if(!Array.isArray(j.rows))throw new Error('AI repair response tidak valid.');const rows=j.rows.map(x=>Array.isArray(x)?x.map(clean):[]).filter(x=>x.length===t.headers.length);return{headers:t.headers,rows}}
-async function smartExtractPdf(pdfjs,file,opts={}){const extracted=await extractPdf(pdfjs,file,opts);let validation=validate(extracted);if(opts.aiRepair&&validation.needsAi&&extracted.pages.length&&flattenTable(extracted).rows.length<=300){try{const ai=await aiRepair(extracted,opts.aiEndpoint||'/api/ai-repair',opts);if(ai.rows.length>=flattenTable(extracted).rows.length*.8){extracted.schema={...(extracted.schema||{}),headers:ai.headers,roles:schemaRoles(ai.headers)};let cursor=0;for(const p of extracted.pages){const n=(p.rows||[]).length;p.rows=ai.rows.slice(cursor,cursor+n);cursor+=n}validation=validate(extracted);extracted.aiRepaired=true}}catch(e){extracted.aiError=String(e?.message||e)}}return{extracted,validation}}
-global.IUConvert={groupLines,findHeader,makeCenters,assignLine,reconstructPage,extractPdf,smartExtractPdf,flattenTable,rawText,validate,aiRepair,clean,isNumber};
+  'use strict';
+
+  const ALIASES = {
+    no: ['no','no.','number'],
+    ticket: ['no.ticket','no ticket','ticket','ticket no','ticket number'],
+    truck: ['no.truck','no truck','truck','vehicle','vehicle no'],
+    in: ['in','masuk','start'],
+    out: ['out','keluar','finish'],
+    gross: ['gross','gross ton','gross(ton)','gross(tonnes)'],
+    tare: ['tarra','tara','tare','tarra ton','tara ton','tare ton','tarra(ton)','tara(ton)','tare(ton)'],
+    net: ['netto','net','netto ton','net(ton)','netto(ton)'],
+    subleader: ['sub leader','subleader'],
+    leader: ['leader'],
+    date: ['date','tanggal'],
+    time: ['time','waktu']
+  };
+
+  function clean(s){
+    return String(s ?? '')
+      .replace(/[\u0000-\u001F]+/g,' ')
+      .replace(/\s+/g,' ')
+      .trim();
+  }
+  function norm(s){ return clean(s).toLowerCase().replace(/[^a-z0-9]+/g,''); }
+  function textOf(item){ return clean(item?.str ?? item?.text ?? ''); }
+  function xOf(item){ return Number(item?.x ?? item?.transform?.[4] ?? 0); }
+  function yOf(item){ return Number(item?.y ?? item?.transform?.[5] ?? 0); }
+  function wOf(item){ return Math.abs(Number(item?.w ?? item?.width ?? 0)); }
+  function hOf(item){ return Math.abs(Number(item?.h ?? item?.height ?? item?.transform?.[3] ?? 10)) || 10; }
+
+  function groupLines(items, tolerance){
+    const usable = (items || []).filter(i => textOf(i));
+    const sorted = usable.map(i => ({
+      text:textOf(i), x:xOf(i), y:yOf(i), w:wOf(i), h:hOf(i)
+    })).sort((a,b) => (b.y-a.y) || (a.x-b.x));
+
+    const lines=[];
+    for(const item of sorted){
+      let best=null, bestDiff=Infinity;
+      for(const line of lines){
+        const d=Math.abs(line.y-item.y);
+        const lim=Math.max(tolerance || 3.2, Math.min(item.h,line.h)*0.45);
+        if(d<=lim && d<bestDiff){ best=line; bestDiff=d; }
+      }
+      if(!best) lines.push({y:item.y,h:item.h,items:[item]});
+      else { best.items.push(item); best.h=Math.max(best.h,item.h); best.y=(best.y+item.y)/2; }
+    }
+    lines.sort((a,b)=>b.y-a.y);
+    for(const line of lines) line.items.sort((a,b)=>a.x-b.x);
+    return lines;
+  }
+
+  function aliasHit(token){
+    const n=norm(token);
+    for(const group of Object.values(ALIASES)){
+      if(group.some(a => n===norm(a))) return true;
+    }
+    return false;
+  }
+
+  function headerScore(line){
+    const tokens=line.items.map(i=>norm(i.text)).filter(Boolean);
+    let hits=0;
+    for(const t of tokens) if(aliasHit(t)) hits++;
+    const joined=norm(line.items.map(i=>i.text).join(' '));
+    const compoundHits=['noticket','notruck','subleader','grosston','tarraton','nettoton']
+      .filter(x=>joined.includes(x)).length;
+    return hits*4 + compoundHits*5 + Math.min(line.items.length,14)*0.25;
+  }
+
+  function findHeader(lines){
+    let best=null;
+    const limit=Math.min(lines.length, Math.max(12, Math.floor(lines.length*0.30)));
+    for(let i=0;i<limit;i++){
+      const score=headerScore(lines[i]);
+      if(!best || score>best.score) best={index:i,line:lines[i],score};
+    }
+    return best && best.score>=14 ? best : null;
+  }
+
+  function makeColumns(headerLine){
+    const a=headerLine.items.slice().sort((u,v)=>u.x-v.x);
+    const cols=[];
+    for(let i=0;i<a.length;i++){
+      const cur=a[i], next=a[i+1];
+      const curN=norm(cur.text), nextN=next?norm(next.text):'';
+      if(curN==='sub' && nextN==='leader'){
+        cols.push({label:'Sub Leader',center:(cur.x+cur.w/2 + next.x+next.w/2)/2,x:cur.x,w:(next.x+next.w)-cur.x});
+        i++;
+      } else {
+        cols.push({label:clean(cur.text),center:cur.x+cur.w/2,x:cur.x,w:cur.w});
+      }
+    }
+    return cols;
+  }
+
+  function boundaries(columns){
+    const b=[];
+    for(let i=0;i<columns.length-1;i++) b.push((columns[i].center+columns[i+1].center)/2);
+    return b;
+  }
+
+  function assignLine(line, columns, bounds){
+    const cells=Array.from({length:columns.length},()=>[]);
+    for(const item of line.items){
+      const xc=item.x+item.w/2;
+      let idx=0;
+      while(idx<bounds.length && xc>=bounds[idx]) idx++;
+      if(idx<cells.length) cells[idx].push(item.text);
+    }
+    return cells.map(clean);
+  }
+
+  function isFooter(text){
+    // Legacy helper retained for compatibility. It NEVER controls row removal.
+    const t=norm(text);
+    return !!t && (t.includes('page') || t.includes('total') || t.includes('weighbridge') ||
+      t.includes('dailyreport') || t.includes('date'));
+  }
+
+  function pageBands(lines){
+    if(!lines.length) return {headerLines:[], footerLines:[], bodyLines:[]};
+    const ys=lines.map(l=>l.y), top=Math.max(...ys), bottom=Math.min(...ys);
+    const span=Math.max(1,top-bottom);
+    const headerCut=top-span*0.16;
+    const footerCut=bottom+span*0.14;
+    const headerLines=[], footerLines=[], bodyLines=[];
+    for(const line of lines){
+      if(line.y>=headerCut) headerLines.push(line);
+      else if(line.y<=footerCut) footerLines.push(line);
+      else bodyLines.push(line);
+    }
+    return {headerLines,footerLines,bodyLines};
+  }
+
+  function rowScore(cells){
+    const first=clean(cells[0]), ticket=clean(cells[1]||''), truck=clean(cells[2]||'');
+    let score=0;
+    if(/^\d{1,5}$/.test(first)) score+=4;
+    if(/^[A-Z0-9]{5,}$/i.test(ticket)) score+=2;
+    if(/^[A-Z0-9 -]{4,}$/i.test(truck)) score+=1;
+    if(/^\d{1,2}:\d{2}$/.test(cells[3]||'')) score+=1;
+    if(/^\d{1,2}:\d{2}$/.test(cells[4]||'')) score+=1;
+    if(/\d/.test(cells[5]||'')) score+=1;
+    if(/\d/.test(cells[6]||'')) score+=1;
+    if(/\d/.test(cells[7]||'')) score+=1;
+    if(cells.filter(Boolean).length>=6) score+=2;
+    return score;
+  }
+
+  function looksLikeDataRow(cells){
+    return rowScore(cells)>=7;
+  }
+
+  function rowKey(cells){ return cells.map(clean).join('\u001F'); }
+
+  function reconstructPage(items, schema){
+    const lines=groupLines(items,3.2);
+    const found=findHeader(lines);
+    let columns=schema?.columns || null;
+    let headerIndex=found ? found.index : -1;
+    if(found){
+      const detected=makeColumns(found.line);
+      if(detected.length>=5) {
+        if(!columns || detected.length>=columns.length-1) columns=detected;
+        if(!schema) schema={columns};
+      }
+    }
+    if(!columns || columns.length<5){
+      const bands=pageBands(lines);
+    return {headers:[],rows:[],rawLines:lines.map(l=>clean(l.items.map(i=>i.text).join(' '))),schema:null,quality:0,
+      pageHeaderLines:bands.headerLines.map(l=>clean(l.items.map(i=>i.text).join(' '))).filter(Boolean),
+      pageFooterLines:bands.footerLines.map(l=>clean(l.items.map(i=>i.text).join(' '))).filter(Boolean),
+      layoutLines:lines.map(l=>({y:l.y,items:l.items.map(i=>({text:i.text,x:i.x,y:i.y,w:i.w,h:i.h}))}))};
+    }
+
+    const bounds=boundaries(columns), rows=[], rawLines=[];
+    const bands=pageBands(lines);
+    for(let i=0;i<lines.length;i++){
+      const text=clean(lines[i].items.map(x=>x.text).join(' '));
+      if(text) rawLines.push(text);
+      // IMPORTANT: never drop a line merely because it is close to the PDF footer.
+      // Data rows are accepted by structure/score, not by vertical position.
+      if(i===headerIndex) continue;
+      const cells=assignLine(lines[i],columns,bounds);
+      if(looksLikeDataRow(cells)) rows.push(cells);
+    }
+
+    const quality=Math.min(100, Math.round(
+      (columns.length>=8?35:20) +
+      Math.min(35, rows.length) +
+      (rows.length ? 20 : 0)
+    ));
+    return {
+      headers:columns.map(c=>c.label),
+      rows,
+      rawLines,
+      schema:{columns},
+      quality,
+      pageHeaderLines:bands.headerLines.map(l=>clean(l.items.map(i=>i.text).join(' '))).filter(Boolean),
+      pageFooterLines:bands.footerLines.map(l=>clean(l.items.map(i=>i.text).join(' '))).filter(Boolean),
+      layoutLines:lines.map(l=>({y:l.y,items:l.items.map(i=>({text:i.text,x:i.x,y:i.y,w:i.w,h:i.h}))}))
+    };
+  }
+
+  async function ocrPage(pdf,pageNo,opts){
+    if(!global.Tesseract) throw new Error('Tesseract.js belum termuat.');
+    const viewport=pdf.getPage ? (await pdf.getPage(pageNo)).getViewport({scale:2.2}) : null;
+    const page=await pdf.getPage(pageNo);
+    const vp=page.getViewport({scale:Math.min(2.4,Math.max(1.7,1600/page.getViewport({scale:1}).width))});
+    const canvas=document.createElement('canvas');
+    canvas.width=Math.ceil(vp.width); canvas.height=Math.ceil(vp.height);
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    await page.render({canvasContext:ctx,viewport:vp}).promise;
+    const result=await global.Tesseract.recognize(canvas,opts.ocrLang||'eng',{
+      logger:opts.onOcrProgress || undefined
+    });
+    const words=(result.data.words||[]).filter(w=>clean(w.text));
+    return words.map(w=>({
+      text:clean(w.text),
+      x:w.bbox.x0,
+      y:vp.height-w.bbox.y1,
+      w:w.bbox.x1-w.bbox.x0,
+      h:w.bbox.y1-w.bbox.y0
+    }));
+  }
+
+  async function extractPdf(pdfjs,file,opts={}){
+    if(!pdfjs) throw new Error('PDF.js belum termuat.');
+    const pdf=await pdfjs.getDocument({data:await file.arrayBuffer()}).promise;
+    const pages=[];
+    let schema=null;
+    let totalTextRows=0;
+
+    for(let p=1;p<=pdf.numPages;p++){
+      const page=await pdf.getPage(p);
+      const content=await page.getTextContent({normalizeWhitespace:false,disableCombineTextItems:false});
+      const result=reconstructPage(content.items,schema);
+      if(result.schema && result.quality>=40 && !schema) schema=result.schema;
+      pages.push({page:p,...result,mode:'text'});
+      totalTextRows += result.rows.length;
+    }
+
+    const expectedLast = pages.flatMap(p=>p.rows).map(r=>Number(r[0])).filter(Number.isFinite).sort((a,b)=>b-a)[0] || 0;
+    const needOcr=!!opts.ocr || (!!opts.autoOcr && (totalTextRows<2 || !schema));
+
+    if(needOcr && global.Tesseract){
+      for(const p of pages){
+        const words=await ocrPage(pdf,p.page,opts);
+        const result=reconstructPage(words,schema);
+        p.ocrRawLines=result.rawLines;
+        if(result.rows.length>p.rows.length || (p.rows.length<2 && result.rows.length)){
+          p.headers=result.headers; p.rows=result.rows; p.schema=result.schema; p.quality=result.quality; p.mode='ocr';
+          if(!schema && result.schema) schema=result.schema;
+        }
+      }
+    }
+
+    return {pdf,pages,schema,usedOcr:pages.some(p=>p.mode==='ocr'),expectedLast,
+      pageHeaders:pages.map(p=>({page:p.page,lines:p.pageHeaderLines||[]})),
+      pageFooters:pages.map(p=>({page:p.page,lines:p.pageFooterLines||[]}))};
+  }
+
+  function flattenTable(extracted){
+    const headers=extracted.schema?.columns?.map(c=>c.label) ||
+      extracted.pages.find(p=>p.headers?.length)?.headers || [];
+    const rows=[], seen=new Set();
+    for(const p of extracted.pages){
+      for(const raw of (p.rows||[])){
+        const r=raw.concat(Array(Math.max(0,headers.length-raw.length)).fill('')).slice(0,headers.length);
+        const key=rowKey(r);
+        if(!seen.has(key) && r.some(Boolean)){ seen.add(key); rows.push(r); }
+      }
+    }
+    rows.sort((a,b)=>{
+      const na=Number(a[0]), nb=Number(b[0]);
+      return Number.isFinite(na)&&Number.isFinite(nb) ? na-nb : 0;
+    });
+    return {headers,rows};
+  }
+
+  global.IUConvert={
+    groupLines,findHeader,makeColumns,assignLine,reconstructPage,pageBands,
+    extractPdf,flattenTable,clean
+  };
 })(window);
