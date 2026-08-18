@@ -135,5 +135,5 @@
     const rows=[];for(const p of extracted.pages)for(const r of p.rows||[])rows.push(r.concat(Array(Math.max(0,headers.length-r.length)).fill('')).slice(0,headers.length));
     return {headers,rows};
   }
-  global.IUConvert={groupLines,findHeader,makeColumns,assignLine,reconstructPage,extractPdf,flattenTable,clean};
+  global.IULocalConvert={groupLines,findHeader,makeColumns,assignLine,reconstructPage,extractPdf,flattenTable,clean};
 })(window);
