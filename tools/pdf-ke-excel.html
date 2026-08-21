@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PDF → Excel — Indonesia Utility Tools</title>
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+.tool-shell{max-width:900px;margin:auto}
+.calculator-card{padding:24px}
+.field{margin-bottom:18px}
+.progress,.result{margin-top:15px;padding:14px;border-radius:10px}
+.progress{background:#eef4fb}
+.ok{color:#176b3a}
+.err{color:#a33}
+.file-name{margin-top:8px;font-size:.95rem}
+.calc-btn[disabled]{opacity:.6;cursor:not-allowed}
+</style>
+</head>
+
+<body>
+<header class="site-header">
+  <div class="container nav">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">IU</span>
+      <span>INDONESIA<br><b>UTILITY TOOLS</b></span>
+    </a>
+    <nav>
+      <a href="../index.html#categories">Kategori</a>
+      <a href="../index.html#popular">Populer</a>
+      <a href="../about.html">Tentang</a>
+    </nav>
+  </div>
+</header>
+
+<main class="tool-page">
+  <div class="container tool-shell">
+
+    <a class="back" href="../index.html">← Kembali ke semua tools</a>
+
+    <div class="tool-head">
+      <div class="eyebrow">DOCUMENT</div>
+      <h1>PDF → Excel</h1>
+      <p>Konversi PDF ke Excel menggunakan Free Smart Engine.</p>
+    </div>
+
+    <div class="calculator-card">
+      <div class="field">
+        <label for="file"><b>Pilih file PDF</b></label>
+        <input id="file" type="file" accept="application/pdf,.pdf">
+        <div id="fileName" class="file-name"></div>
+      </div>
+
+      <div id="info" class="result">
+        <div class="note">Pilih file PDF untuk mulai.</div>
+      </div>
+
+      <button type="button" class="calc-btn" id="convert" disabled>
+        Convert to Excel
+      </button>
+    </div>
+
+    <div class="tool-content">
+      <h2>Output</h2>
+      <ul>
+        <li><b>Weighbridge Data / Converted Data</b> — data utama hasil ekstraksi PDF.</li>
+        <li><b>Excel .xlsx</b> — siap diunduh dan dibuka di Microsoft Excel atau spreadsheet lain.</li>
+      </ul>
+    </div>
+
+  </div>
+</main>
+
+<script>
+(() => {
+  const API_URL = "https://yantrista.pythonanywhere.com/convert";
+  const MAX_FILE_SIZE = 20 * 1024 * 1024;
+
+  const fileInput = document.getElementById("file");
+  const convertButton = document.getElementById("convert");
+  const info = document.getElementById("info");
+  const fileName = document.getElementById("fileName");
+
+  const escapeHtml = (value) =>
+    String(value ?? "").replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    }[char]));
+
+  function show(message, type = "") {
+    info.innerHTML = `<div class="${type}">${message}</div>`;
+  }
+
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files && fileInput.files[0];
+
+    convertButton.disabled = true;
+    fileName.textContent = "";
+
+    if (!file) {
+      show("Pilih file PDF untuk mulai.");
+      return;
+    }
+
+    if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
+      show("File yang dipilih bukan PDF.", "err");
+      fileInput.value = "";
+      return;
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      show("Ukuran PDF terlalu besar. Maksimum 20 MB.", "err");
+      fileInput.value = "";
+      return;
+    }
+
+    fileName.textContent =
+      `File: ${file.name} • ${(file.size / 1024).toFixed(1)} KB`;
+
+    show("PDF siap dikonversi.");
+    convertButton.disabled = false;
+  });
+
+  convertButton.addEventListener("click", async () => {
+    const file = fileInput.files && fileInput.files[0];
+
+    if (!file) {
+      show("Pilih file PDF terlebih dahulu.", "err");
+      return;
+    }
+
+    const originalText = convertButton.textContent;
+    convertButton.disabled = true;
+    convertButton.textContent = "Mengonversi...";
+    show("⏳ Mengirim PDF ke Free Smart Engine. Mohon tunggu...", "progress");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file, file.name);
+
+      const response = await fetch(API_URL, {
+        method: "POST",
+        body: formData
+      });
+
+      if (!response.ok) {
+        let message = `Server mengembalikan error ${response.status}.`;
+
+        try {
+          const contentType = response.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const data = await response.json();
+            message = data.detail || data.error || data.message || message;
+          } else {
+            const text = await response.text();
+            if (text) message = text.slice(0, 500);
+          }
+        } catch (_) {}
+
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+
+      if (!blob.size) {
+        throw new Error("File Excel yang diterima kosong.");
+      }
+
+      const disposition =
+        response.headers.get("content-disposition") || "";
+
+      const match = disposition.match(
+        /filename\*?=(?:UTF-8''|")?([^";\n]+)/
+      );
+
+      const baseName = file.name.replace(/\.pdf$/i, "");
+      const outputName = match
+        ? decodeURIComponent(match[1].replace(/"/g, "").trim())
+        : `${baseName}.xlsx`;
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = outputName;
+      document.body.appendChild(link);
+      link.click();
+
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+        link.remove();
+      }, 2000);
+
+      show(
+        `✓ Excel berhasil dibuat dan sedang diunduh.<br><small>${escapeHtml(outputName)}</small>`,
+        "ok"
+      );
+
+    } catch (error) {
+      console.error(error);
+      show(
+        `Gagal mengonversi PDF: ${escapeHtml(error.message || error)}`,
+        "err"
+      );
+    } finally {
+      convertButton.disabled = false;
+      convertButton.textContent = originalText;
+    }
+  });
+})();
+</script>
+
+</body>
+</html>
