@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PDF Excel Universal — Indonesia Utility Tools</title>
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+.tool-shell{max-width:900px;margin:auto}.calculator-card{padding:24px}.field{margin-bottom:18px}
+.progress,.result{margin-top:15px;padding:14px;border-radius:10px}.progress{background:#eef4fb}
+.ok{color:#176b3a}.err{color:#a33}
+</style>
+</head>
+<body>
+<header class="site-header"><div class="container nav">
+<a class="brand" href="../index.html"><span class="brand-mark">IU</span><span>INDONESIA<br><b>UTILITY TOOLS</b></span></a>
+<nav><a href="../index.html#categories">Kategori</a><a href="../index.html#popular">Populer</a><a href="../about.html">Tentang</a></nav>
+</div></header>
+<main class="tool-page"><div class="container tool-shell">
+<a class="back" href="../index.html">← Kembali ke semua tools</a>
+<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF Excel Universal</h1>
+<p>Konversi berbagai jenis PDF ke Excel menggunakan Universal PDF Engine.</p></div>
+<div class="calculator-card">
+<div class="field"><label for="file">Pilih PDF</label><input id="file" type="file" accept="application/pdf,.pdf"></div>
+<div id="info" class="result"><div class="note">Pilih PDF untuk mulai.</div></div>
+<button type="button" class="calc-btn" id="convert" disabled>Convert to Excel</button>
+</div>
+<div class="tool-content"><h2>Cocok untuk</h2><ul>
+<li>Invoice dan laporan</li><li>Tabel PDF umum</li><li>Dokumen multi-halaman</li><li>PDF berbasis teks</li>
+</ul></div>
+</div></main>
+<script>
+const API_URL="https://yantrista.pythonanywhere.com/convert-universal";
+const fileInput=document.getElementById("file"),button=document.getElementById("convert"),info=document.getElementById("info");
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let selectedFile=null;
+fileInput.addEventListener("change",()=>{selectedFile=fileInput.files&&fileInput.files[0];if(!selectedFile){button.disabled=true;info.innerHTML='<div class="note">Pilih PDF untuk mulai.</div>';return}
+if(selectedFile.type!=="application/pdf"&&!selectedFile.name.toLowerCase().endsWith(".pdf")){button.disabled=true;info.innerHTML='<div class="err">File harus PDF.</div>';return}
+button.disabled=false;info.innerHTML='<div class="note">File: '+esc(selectedFile.name)+' • '+(selectedFile.size/1024).toFixed(1)+' KB</div>'});
+button.addEventListener("click",async()=>{if(!selectedFile)return;button.disabled=true;info.innerHTML='<div class="progress">⏳ Menganalisis dan mengonversi PDF. Mohon tunggu…</div>';
+try{const form=new FormData();form.append("file",selectedFile,selectedFile.name);
+const response=await fetch(API_URL,{method:"POST",body:form});
+if(!response.ok){let message="HTTP "+response.status;try{const data=await response.json();message=data.detail||data.error||data.message||message}catch(_){}
+if(response.status===404)message="Universal PDF Engine belum dipasang di server.";throw new Error(message)}
+const blob=await response.blob();if(!blob.size)throw new Error("Server tidak menghasilkan file Excel.");
+const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=selectedFile.name.replace(/\.pdf$/i,"")+"_universal.xlsx";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
+info.innerHTML='<div class="ok">✓ Excel berhasil dibuat.</div>'}
+catch(error){info.innerHTML='<div class="err">Gagal mengonversi PDF: '+esc(error.message||error)+'</div>'}
+finally{button.disabled=false}});
+</script>
+</body></html>
