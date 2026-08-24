@@ -31,7 +31,7 @@
 </ul></div>
 </div></main>
 <script>
-const API_URL="https://yantrista.pythonanywhere.com/convert";
+const API_URL="https://yantrista.pythonanywhere.com/api/weighbridge/convert";
 const fileInput=document.getElementById("file"),button=document.getElementById("convert"),info=document.getElementById("info");
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let selectedFile=null;
@@ -39,7 +39,7 @@ fileInput.addEventListener("change",()=>{selectedFile=fileInput.files&&fileInput
 if(selectedFile.type!=="application/pdf"&&!selectedFile.name.toLowerCase().endsWith(".pdf")){button.disabled=true;info.innerHTML='<div class="err">File harus PDF.</div>';return}
 button.disabled=false;info.innerHTML='<div class="note">File: '+esc(selectedFile.name)+' • '+(selectedFile.size/1024).toFixed(1)+' KB</div>'});
 button.addEventListener("click",async()=>{if(!selectedFile)return;button.disabled=true;info.innerHTML='<div class="progress">⏳ Mengonversi PDF weighbridge. Mohon tunggu…</div>';
-try{const form=new FormData();form.append("file",selectedFile,selectedFile.name);
+try{const form=new FormData();form.append("files",selectedFile,selectedFile.name);
 const response=await fetch(API_URL,{method:"POST",body:form});
 if(!response.ok){let message="HTTP "+response.status;try{const data=await response.json();message=data.detail||data.error||data.message||message}catch(_){}throw new Error(message)}
 const blob=await response.blob();if(!blob.size)throw new Error("Server tidak menghasilkan file Excel.");
