@@ -47,9 +47,9 @@ ROW_RE = re.compile(
     r"(.+?)\s+"
     r"(\d{1,2}:\d{2})\s+"
     r"(\d{1,2}:\d{2})\s+"
-    r"(\d+(?:\.\d+)?)\s+"
-    r"(\d+(?:\.\d+)?)\s+"
-    r"(\d+(?:\.\d+)?)\s+"
+    r"(\d+(?:\.\d{3})?)\s+"
+    r"(\d+(?:\.\d{3})?)\s+"
+    r"(\d+(?:\.\d{3})?)\s+"
     r"(.+)$"
 )
 
@@ -60,14 +60,14 @@ HEADER_WORDS = {
 }
 
 TOTAL_LABEL_RE = re.compile(
-    r"\b(?:grand\s+total|total\s+netto|netto\s+total|"
-    r"subtotal|sub\s*total|total)\b",
+    r"(?:t\s*o\s*t\s*a\s*l|grand\s+total|total\s+netto|"
+    r"netto\s+total|subtotal|sub\s*total|total)",
     re.I,
 )
 
 # Prefer a number with exactly 3 decimals because weighbridge totals
 # normally use the same precision as Netto(Ton).
-WEIGHT3_RE = re.compile(r"\b\d+\.\d{3}\b")
+WEIGHT_RE = re.compile(r"(?<![\w.])\d+(?:\.\d{3})?(?![\w.])")
 
 
 def clean(s) -> str:
@@ -83,6 +83,33 @@ def dec(s):
         return Decimal(clean(s).replace(",", ""))
     except (InvalidOperation, ValueError):
         return None
+
+
+def weight_value(s, role="netto"):
+    """Parse the PDF weight notation as kilograms.
+
+    The source PDF uses dots as thousands separators, e.g. 9.070 =
+    9,070 kg, while sub-1,000 kg values are printed without a dot,
+    e.g. 680 = 680 kg. Therefore all three weight fields are stored as
+    numeric kilogram values in Excel.
+    """
+    raw = clean(s).replace(",", "")
+    if not raw:
+        return None
+
+    try:
+        if "." in raw:
+            parts = raw.split(".")
+            if len(parts) == 2 and len(parts[1]) == 3 and parts[0].isdigit() and parts[1].isdigit():
+                return Decimal(parts[0]) * Decimal("1000") + Decimal(parts[1])
+        return Decimal(raw)
+    except InvalidOperation:
+        return None
+
+
+def fmt_weight(v):
+    """Return an Excel numeric value while retaining three-decimal precision."""
+    return float(v) if v is not None else None
 
 
 def split_candidate_lines(text):
@@ -172,13 +199,13 @@ def discover_total(lines, row_indexes=None):
             if not TOTAL_LABEL_RE.search(line):
                 continue
 
-            nums = WEIGHT3_RE.findall(line)
+            nums = WEIGHT_RE.findall(line)
             if not nums and i + 1 < len(lines):
-                nums = WEIGHT3_RE.findall(lines[i + 1])
+                nums = WEIGHT_RE.findall(lines[i + 1])
 
             if nums:
                 # The last number on a total line is usually the displayed total.
-                return Decimal(nums[-1])
+                return weight_value(nums[-1], "netto")
 
     return None
 
@@ -199,9 +226,12 @@ def discover_rows(text):
 
         if m:
             no, ticket, truck, tin, tout, gross, tarra, netto, tail = m.groups()
+            g = weight_value(gross, "gross")
+            t = weight_value(tarra, "tarra")
+            n = weight_value(netto, "netto")
             rows.append([
                 no, clean(ticket), clean(truck), tin, tout,
-                gross, tarra, netto, clean(tail)
+                g, t, n, clean(tail)
             ])
             row_indexes.append(i)
             i += 1
@@ -211,10 +241,20 @@ def discover_rows(text):
         if tm:
             window_lines = lines[i:i + 4]
             window = " ".join(window_lines)
-            times = TIME_RE.findall(window)
-            nums = WEIGHT3_RE.findall(window)
+            time_matches = list(TIME_RE.finditer(window))
+            times = [m.group(0) for m in time_matches]
 
-            if len(times) >= 2 and len(nums) >= 3:
+            weight_match = None
+            if len(time_matches) >= 2:
+                after_out = window[time_matches[1].end():]
+                weight_match = re.search(
+                    r"\b(\d+(?:\.\d{3})?)\s+"
+                    r"(\d+(?:\.\d{3})?)\s+"
+                    r"(\d+(?:\.\d{3})?)\b",
+                    after_out,
+                )
+
+            if len(times) >= 2 and weight_match:
                 before = line[:tm.start()].strip()
                 no_m = re.search(r"^\s*(\d+)\b", before)
                 no = no_m.group(1) if no_m else ""
@@ -228,9 +268,13 @@ def discover_rows(text):
                 )
                 truck = truck_m.group(1) if truck_m else ""
 
+                nums = weight_match.groups()
+                g = weight_value(nums[0], "gross")
+                t = weight_value(nums[1], "tarra")
+                n = weight_value(nums[2], "netto")
                 rows.append([
                     no, clean(ticket), clean(truck),
-                    times[0], times[1], nums[0], nums[1], nums[2],
+                    times[0], times[1], g, t, n,
                     clean(line[tm.end():])
                 ])
                 row_indexes.append(i)
@@ -386,7 +430,7 @@ def validate(rows):
             errors.append((idx, "DUPLICATE_TICKET", ticket))
         seen.add(ticket)
 
-        g, t, n = dec(r[5]), dec(r[6]), dec(r[7])
+        g, t, n = weight_value(r[5], "gross"), weight_value(r[6], "tarra"), weight_value(r[7], "netto")
 
         if g is None or t is None or n is None:
             errors.append((idx, "BAD_WEIGHT", r[1]))
@@ -462,22 +506,26 @@ def write_xlsx(rows, reports, pdf, outdir):
 
         for r in chunk:
             for col, value in enumerate(r, 1):
-                ws.cell(row=current_row, column=col, value=value)
+                cell = ws.cell(row=current_row, column=col, value=value)
+                if col in (6, 7, 8) and value is not None:
+                    cell.number_format = "[$-421]#,##0"
             current_row += 1
 
-        excel_total = sum((dec(r[7]) or Decimal(0)) for r in chunk)
+        excel_total = sum((weight_value(r[7], "netto") or Decimal(0)) for r in chunk)
         pdf_total = rep.get("total")
 
         # Always show Excel calculated total.
         ws.cell(row=current_row, column=7, value="REPORT TOTAL")
         ws.cell(row=current_row, column=7).font = Font(bold=True)
         ws.cell(row=current_row, column=8, value=float(excel_total))
+        ws.cell(row=current_row, column=8).number_format = "[$-421]#,##0"
         ws.cell(row=current_row, column=8).font = Font(bold=True)
 
         if pdf_total is not None:
             ws.cell(row=current_row, column=9, value="PDF TOTAL")
             ws.cell(row=current_row, column=9).font = Font(bold=True)
             ws.cell(row=current_row, column=10, value=float(pdf_total))
+            ws.cell(row=current_row, column=10).number_format = "[$-421]#,##0"
             ws.cell(row=current_row, column=10).font = Font(bold=True)
 
         current_row += 2
@@ -501,7 +549,7 @@ def write_xlsx(rows, reports, pdf, outdir):
     pos = 0
     for i, rep in enumerate(reports, 1):
         chunk = rows[pos:pos + len(rep["rows"])]
-        excel_total = sum((dec(r[7]) or Decimal(0)) for r in chunk)
+        excel_total = sum((weight_value(r[7], "netto") or Decimal(0)) for r in chunk)
         pdf_total = rep.get("total")
 
         if pdf_total is not None:
@@ -525,12 +573,35 @@ def write_xlsx(rows, reports, pdf, outdir):
             status,
             rep.get("title", ""),
         ])
+        for c in (5, 6, 7):
+            rs.cell(row=rs.max_row, column=c).number_format = "[$-421]#,##0"
         pos += len(chunk)
 
     for cell in rs[1]:
         cell.font = Font(bold=True)
     rs.freeze_panes = "A2"
     rs.column_dimensions["I"].width = 60
+
+    # Grand total across all detected reports.
+    grand_excel = sum(
+        (weight_value(r[7], "netto") or Decimal(0)) for r in rows
+    )
+    grand_pdf = sum(
+        (rep.get("total") or Decimal(0)) for rep in reports
+    )
+    rs.append([])
+    rs.append([
+        "", "", "", "GRAND TOTAL",
+        float(grand_pdf) if any(rep.get("total") is not None for rep in reports) else "",
+        float(grand_excel),
+        float(grand_excel - grand_pdf) if any(rep.get("total") is not None for rep in reports) else "",
+        "PASS" if any(rep.get("total") is not None for rep in reports) and grand_excel == grand_pdf else "CHECK",
+        "",
+    ])
+    for c in (5, 6, 7):
+        rs.cell(row=rs.max_row, column=c).number_format = "[$-421]#,##0"
+    for cell in rs[rs.max_row]:
+        cell.font = Font(bold=True)
 
     # Diagnostics.
     diag = wb.create_sheet("Diagnostics")
@@ -550,6 +621,9 @@ def write_xlsx(rows, reports, pdf, outdir):
         "Reports with PDF total",
         sum(1 for r in reports if r.get("total") is not None)
     ])
+    diag.append(["PDF Grand Total Netto (kg)", float(grand_pdf)])
+    diag.append(["Excel Grand Total Netto (kg)", float(grand_excel)])
+    diag.append(["Grand Total Difference (kg)", float(grand_excel - grand_pdf)])
 
     for cell in diag[1]:
         cell.font = Font(bold=True)
