@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PDF Excel Universal — Indonesia Utility Tools</title>
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+.tool-shell{max-width:1100px;margin:auto}.calculator-card{padding:24px}.field{margin-bottom:18px}
+.progress,.result,.panel{margin-top:15px;padding:14px;border-radius:10px}.progress{background:#eef4fb}
+.ok{color:#176b3a}.err{color:#a33}.muted{color:#667085}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.toolbar button{padding:9px 13px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;cursor:pointer}
+.toolbar button:disabled{opacity:.55;cursor:not-allowed}
+.preview-wrap{overflow:auto;margin-top:16px;border:1px solid #e4e7ec;border-radius:10px}
+.preview-table{border-collapse:collapse;min-width:720px;width:100%}
+.preview-table th,.preview-table td{border:1px solid #e4e7ec;padding:8px 10px;text-align:left;white-space:nowrap}
+.preview-table th{font-weight:700;background:#f8fafc;position:sticky;top:0}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:14px}
+.stat{padding:12px;border:1px solid #e4e7ec;border-radius:9px;background:#fff}.stat b{display:block;font-size:18px}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#98a2b3;margin-right:7px}
+</style>
+</head>
+<body>
+<header class="site-header"><div class="container nav">
+<a class="brand" href="../index.html"><span class="brand-mark">IU</span><span>INDONESIA<br><b>UTILITY TOOLS</b></span></a>
+<nav><a href="../index.html#categories">Kategori</a><a href="../index.html#popular">Populer</a><a href="../about.html">Tentang</a></nav>
+</div></header>
+
+<main class="tool-page"><div class="container tool-shell">
+<a class="back" href="../index.html">← Kembali ke semua tools</a>
+<div class="tool-head"><div class="eyebrow">DOCUMENT</div><h1>PDF Excel Universal</h1>
+<p>Konversi PDF berbasis teks menjadi workbook Excel dengan engine lokal di browser — tanpa token dan tanpa API converter.</p></div>
+
+<div class="calculator-card">
+<div class="field"><label for="file">Pilih PDF</label>
+<input id="file" type="file" accept="application/pdf,.pdf"></div>
+
+<div class="field"><label for="mode">Mode parsing</label>
+<select id="mode">
+<option value="auto">Auto — Smart Table Detection</option>
+<option value="table">Table — fokus tabel</option>
+<option value="raw">Raw — semua teks per halaman</option>
+</select></div>
+
+<div id="info" class="result"><span class="status-dot"></span>Pilih PDF untuk mulai.</div>
+<div id="stats" class="stats"></div>
+
+<div class="toolbar">
+<button type="button" id="analyze" disabled>Analyze PDF</button>
+<button type="button" id="convert" disabled>Convert to Excel</button>
+<button type="button" id="clear">Clear</button>
+</div>
+<div id="preview"></div>
+</div>
+
+<div class="tool-content"><h2>Universal Engine</h2><ul>
+<li>PDF text layer dibaca langsung di browser</li>
+<li>Deteksi posisi teks, baris, kolom, header, dan tipe data</li>
+<li>Multi-page table reconstruction dan repeated-header cleanup</li>
+<li>Preview hasil sebelum export</li>
+<li>Beberapa tabel dapat menjadi beberapa sheet</li>
+</ul>
+<p class="muted">OCR scanned PDF akan ditambahkan pada fase berikutnya. V1.1 memprioritaskan engine yang stabil untuk PDF berbasis teks.</p></div>
+</div></main>
+
+<!-- Compatibility builds: no ES modules/imports, so one failed module cannot disable the UI. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<script>
+(function(){
+"use strict";
+
+var fileInput=document.getElementById("file");
+var modeInput=document.getElementById("mode");
+var analyzeBtn=document.getElementById("analyze");
+var convertBtn=document.getElementById("convert");
+var clearBtn=document.getElementById("clear");
+var info=document.getElementById("info");
+var preview=document.getElementById("preview");
+var stats=document.getElementById("stats");
+var selectedFile=null, result=null;
+
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){
+return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];
+});}
+function setInfo(msg,cls){info.innerHTML='<span class="status-dot"></span><span class="'+(cls||"")+'">'+msg+'</span>';}
+
+if(window.pdfjsLib){
+  pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}else{
+  setInfo("PDF engine gagal dimuat. Periksa koneksi/CDN lalu refresh halaman.","err");
+}
+if(!window.XLSX){
+  setInfo("Excel engine gagal dimuat. Periksa koneksi/CDN lalu refresh halaman.","err");
+}
+
+fileInput.addEventListener("change",function(){
+  selectedFile=fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+  result=null; preview.innerHTML=""; stats.innerHTML="";
+  var valid=!!selectedFile && (selectedFile.type==="application/pdf" || /\.pdf$/i.test(selectedFile.name));
+  analyzeBtn.disabled=!valid; convertBtn.disabled=true;
+  if(!selectedFile){setInfo("Pilih PDF untuk mulai.");return;}
+  if(!valid){setInfo("File harus PDF.","err");return;}
+  setInfo("File: "+esc(selectedFile.name)+" • "+(selectedFile.size/1024).toFixed(1)+" KB");
+});
+
+analyzeBtn.addEventListener("click",async function(){
+  if(!selectedFile)return;
+  analyzeBtn.disabled=true; convertBtn.disabled=true;
+  try{
+    var engine=new UniversalPdfEngine(function(p){setInfo("⏳ "+esc(p.message)+(p.percent!=null?" ("+p.percent+"%)":""));});
+    result=await engine.analyze(selectedFile,modeInput.value);
+    renderStats(result); renderPreview(result);
+    convertBtn.disabled=false;
+    setInfo("✓ Analisis selesai. Periksa preview lalu Convert to Excel.","ok");
+    window.__universalEngine=engine;
+  }catch(e){
+    console.error(e);
+    setInfo("Gagal menganalisis PDF: "+esc(e.message||e),"err");
+  }finally{analyzeBtn.disabled=false;}
+});
+
+convertBtn.addEventListener("click",function(){
+  if(!result || !window.__universalEngine)return;
+  try{
+    window.__universalEngine.exportXlsx(
+      result,
+      selectedFile.name.replace(/\.pdf$/i,"")+"_universal.xlsx"
+    );
+    setInfo("✓ Excel berhasil dibuat di browser. Tidak ada upload ke server converter.","ok");
+  }catch(e){
+    console.error(e);
+    setInfo("Gagal membuat Excel: "+esc(e.message||e),"err");
+  }
+});
+
+clearBtn.addEventListener("click",function(){
+  fileInput.value="";selectedFile=null;result=null;
+  analyzeBtn.disabled=true;convertBtn.disabled=true;
+  preview.innerHTML="";stats.innerHTML="";
+  setInfo("Pilih PDF untuk mulai.");
+});
+
+function renderStats(r){
+  stats.innerHTML=[
+    ["Pages",r.pages.length],
+    ["Text items",r.metrics.textItems],
+    ["Tables",r.tables.length],
+    ["Rows",r.metrics.rows],
+    ["Confidence",Math.round(r.metrics.confidence*100)+"%"]
+  ].map(function(x){return '<div class="stat"><span class="muted">'+x[0]+'</span><b>'+esc(x[1])+'</b></div>';}).join("");
+}
+
+function renderPreview(r){
+  if(r.tables.length===0){
+    var rawRows=r.rawPages.map(function(p){
+      return "<tr><td>"+p.page+"</td><td>"+esc(p.items.map(function(x){return x.text;}).join(" "))+"</td></tr>";
+    }).join("");
+    preview.innerHTML='<div class="panel"><b>Raw text fallback</b><div class="preview-wrap"><table class="preview-table"><thead><tr><th>Page</th><th>Text</th></tr></thead><tbody>'+rawRows+'</tbody></table></div></div>';
+    return;
+  }
+  preview.innerHTML=r.tables.map(function(t,i){
+    var rows=t.rows.slice(0,50);
+    return '<div class="panel"><b>Table '+(i+1)+'</b> <span class="muted">('+t.rows.length+' rows × '+t.columnCount+' columns)</span>'+
+      '<div class="preview-wrap"><table class="preview-table"><thead><tr>'+
+      t.headers.map(function(h){return '<th>'+esc(h)+'</th>';}).join("")+
+      '</tr></thead><tbody>'+
+      rows.map(function(row){return '<tr>'+t.headers.map(function(_,j){return '<td>'+esc(row[j]||"")+'</td>';}).join("")+'</tr>';}).join("")+
+      '</tbody></table></div></div>';
+  }).join("");
+}
+
+function median(a){
+  a=a.filter(function(x){return Number.isFinite(x);}).sort(function(x,y){return x-y;});
+  if(!a.length)return 0;var m=Math.floor(a.length/2);
+  return a.length%2?a[m]:(a[m-1]+a[m])/2;
+}
+function clamp(n,a,b){return Math.max(a,Math.min(b,n));}
+function norm(s){return String(s||"").replace(/\s+/g," ").trim();}
+function typeOf(v){
+  var s=norm(v);if(!s)return "blank";
+  if(/^-?\d+(?:[.,]\d+)?$/.test(s)||/^-?\d{1,3}(?:[.,]\d{3})+(?:[.,]\d+)?$/.test(s))return "number";
+  if(/^-?\d+(?:[.,]\d+)?\s*%$/.test(s))return "percentage";
+  if(/^(Rp|IDR|\$|USD|EUR|€)\s*[\d.,]+$/i.test(s))return "currency";
+  if(/^\d{1,4}[\/-]\d{1,2}[\/-]\d{1,4}$/.test(s))return "date";
+  return "text";
+}
+function clusterRows(items,tol){
+  var rows=[];
+  items.slice().sort(function(a,b){return a.y-b.y||a.x-b.x;}).forEach(function(it){
+    var row=null;
+    for(var i=0;i<rows.length;i++)if(Math.abs(rows[i].y-it.y)<=tol){row=rows[i];break;}
+    if(!row){row={y:it.y,items:[]};rows.push(row);}
+    row.items.push(it);
+    row.y=row.items.reduce(function(s,x){return s+x.y;},0)/row.items.length;
+  });
+  return rows.sort(function(a,b){return a.y-b.y;});
+}
+function inferColumns(rows){
+  var xs=[];rows.forEach(function(r){r.items.forEach(function(i){xs.push(i.x);});});
+  xs.sort(function(a,b){return a-b;});var gaps=[];
+  for(var i=1;i<xs.length;i++)if(xs[i]-xs[i-1]>8)gaps.push(xs[i]-xs[i-1]);
+  var threshold=Math.max(14,median(gaps)*1.8), centers=[];
+  xs.forEach(function(x){
+    var c=centers[centers.length-1];
+    if(!c||x-c.mean>threshold)centers.push({mean:x,n:1});
+    else{c.mean=(c.mean*c.n+x)/(c.n+1);c.n++;}
+  });
+  return centers.map(function(c){return c.mean;});
+}
+function rowToCols(row,centers){
+  var out=new Array(centers.length).fill("");
+  row.items.forEach(function(it){
+    var best=0,bd=Infinity;
+    centers.forEach(function(x,i){var d=Math.abs(it.x-x);if(d<bd){bd=d;best=i;}});
+    out[best]=out[best]?out[best]+" "+it.text:it.text;
+  });
+  return out.map(norm);
+}
+function tableScore(m){
+  if(m.length<2)return 0;
+  var widths=m.map(function(r){return r.filter(Boolean).length;}).filter(Boolean);
+  if(!widths.length)return 0;
+  var avg=widths.reduce(function(a,b){return a+b;},0)/widths.length;
+  var consistency=widths.filter(function(n){return Math.abs(n-avg)<=1;}).length/widths.length;
+  return clamp(consistency*.75+Math.min(1,avg/4)*.25,0,1);
+}
+function comparable(a,b){
+  a=norm(a).toLowerCase();b=norm(b).toLowerCase();
+  return a===b||(a&&b&&(a.indexOf(b)>=0||b.indexOf(a)>=0));
+}
+
+function UniversalPdfEngine(progressCb){
+  this.progressCb=progressCb||function(){};
+}
+UniversalPdfEngine.prototype.progress=function(message,percent){this.progressCb({message:message,percent:percent});};
+
+UniversalPdfEngine.prototype.analyze=async function(file,mode){
+  if(!window.pdfjsLib)throw new Error("PDF.js belum tersedia.");
+  if(!window.XLSX)throw new Error("SheetJS belum tersedia.");
+  var buffer=await file.arrayBuffer();
+  this.progress("Membuka PDF",5);
+  var pdf=await pdfjsLib.getDocument({data:buffer}).promise;
+  var pages=[],rawPages=[],tables=[];
+  var totalItems=0;
+
+  for(var p=1;p<=pdf.numPages;p++){
+    this.progress("Membaca halaman "+p+" dari "+pdf.numPages,Math.round(5+(p/pdf.numPages)*75));
+    var page=await pdf.getPage(p),vp=page.getViewport({scale:1});
+    var content=await page.getTextContent({normalizeWhitespace:true});
+    var items=content.items.filter(function(x){return norm(x.str);}).map(function(x){
+      return {text:norm(x.str),x:x.transform[4],y:vp.height-x.transform[5],width:x.width||0,height:Math.abs(x.height||10)};
+    });
+    totalItems+=items.length;
+    var rows=clusterRows(items,Math.max(3,median(items.map(function(i){return i.height;}))*.55));
+    var centers=inferColumns(rows),matrix=rows.map(function(r){return rowToCols(r,centers);});
+    var score=tableScore(matrix);
+    pages.push({page:p,width:vp.width,height:vp.height,itemCount:items.length,rowCount:rows.length,confidence:score});
+    rawPages.push({page:p,items:items,matrix:matrix,confidence:score});
+
+    if(mode!=="raw"&&score>=.42&&matrix.length>=2){
+      var width=Math.max.apply(null,matrix.map(function(r){return r.length;}));
+      var m=matrix.map(function(r){var a=[];for(var j=0;j<width;j++)a.push(norm(r[j]||""));return a;});
+      var headerIndex=this.detectHeader(m),headers=this.uniqueHeaders(m[headerIndex]||[]);
+      var body=m.slice(headerIndex+1).filter(function(r){return r.some(Boolean);});
+      body=body.filter(function(r){return !r.every(function(v,i){return !v||comparable(v,headers[i]||"");});});
+      tables.push({pageStart:p,pageEnd:p,headers:headers,rows:body,columnCount:headers.length,confidence:score});
+    }
+  }
+
+  tables=this.mergeTables(tables);
+  var confidence=tables.length?tables.reduce(function(s,t){return s+t.confidence;},0)/tables.length:0;
+  this.progress("Validasi hasil",95);
+  return {fileName:file.name,pages:pages,rawPages:rawPages,tables:tables,metrics:{
+    textItems:totalItems,rows:tables.reduce(function(s,t){return s+t.rows.length;},0),
+    confidence:confidence,scannedPages:pages.filter(function(p){return p.itemCount===0;}).length
+  }};
+};
+UniversalPdfEngine.prototype.detectHeader=function(m){
+  var best=0,bestScore=-Infinity;
+  m.slice(0,Math.min(8,m.length)).forEach(function(row,i){
+    var filled=row.filter(Boolean).length,text=row.filter(function(x){return typeOf(x)==="text";}).length;
+    var next=m[i+1]||[],numeric=next.filter(function(x){return ["number","currency","percentage","date"].indexOf(typeOf(x))>=0;}).length;
+    var score=filled*.7+text*.5+numeric*.8-i*.25;
+    if(score>bestScore){bestScore=score;best=i;}
+  });
+  return best;
+};
+UniversalPdfEngine.prototype.uniqueHeaders=function(h){
+  var used={};
+  return h.map(function(v,i){var base=norm(v)||("Column "+(i+1)),key=base.toLowerCase();used[key]=(used[key]||0)+1;return used[key]===1?base:base+" "+used[key];});
+};
+UniversalPdfEngine.prototype.mergeTables=function(ts){
+  var out=[];
+  ts.forEach(function(t){
+    var prev=out[out.length-1];
+    if(prev&&prev.pageEnd+1===t.pageStart&&prev.headers.length===t.headers.length&&prev.headers.every(function(h,i){return comparable(h,t.headers[i]);})){
+      prev.rows=prev.rows.concat(t.rows);prev.pageEnd=t.pageEnd;prev.confidence=(prev.confidence+t.confidence)/2;
+    }else out.push({pageStart:t.pageStart,pageEnd:t.pageEnd,headers:t.headers.slice(),rows:t.rows.slice(),columnCount:t.columnCount,confidence:t.confidence});
+  });
+  return out;
+};
+UniversalPdfEngine.prototype.exportXlsx=function(result,fileName){
+  var wb=XLSX.utils.book_new(),self=this;
+  if(result.tables.length){
+    result.tables.forEach(function(t,i){
+      var data=[t.headers].concat(t.rows),ws=XLSX.utils.aoa_to_sheet(data);
+      ws["!autofilter"]={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:Math.max(0,data.length-1),c:Math.max(0,t.headers.length-1)}})};
+      ws["!freeze"]={xSplit:0,ySplit:1};
+      ws["!cols"]=t.headers.map(function(h,c){
+        var max=Math.max(h.length,...t.rows.slice(0,300).map(function(r){return String(r[c]||"").length;}));
+        return {wch:Math.min(45,Math.max(10,max+2))};
+      });
+      XLSX.utils.book_append_sheet(wb,ws,("Table "+(i+1)).slice(0,31));
+    });
+  }else{
+    var data=[["Page","Text"]].concat(result.rawPages.map(function(p){return [p.page,p.items.map(function(x){return x.text;}).join(" ")];}));
+    var ws=XLSX.utils.aoa_to_sheet(data);ws["!cols"]=[{wch:10},{wch:100}];
+    XLSX.utils.book_append_sheet(wb,ws,"Raw Text");
+  }
+  XLSX.writeFile(wb,fileName);
+};
+window.UniversalPdfEngine=UniversalPdfEngine;
+})();
+</script>
+</body>
+</html>
