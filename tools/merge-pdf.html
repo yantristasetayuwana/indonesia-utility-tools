@@ -1,1 +1,142 @@
-<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Gabungkan beberapa file PDF menjadi satu."><title>Merge PDF — Indonesia Utility Tools</title><link rel="stylesheet" href="../assets/style.css"><style>.iu-box{background:#fff;border:1px solid #dbe3ea;border-radius:16px;padding:22px;box-shadow:0 7px 18px rgba(15,39,71,.045);margin-top:18px}textarea,input,select{width:100%;padding:11px;border:1px solid #ccd6e1;border-radius:9px;box-sizing:border-box}textarea{min-height:180px;resize:vertical}.iu-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.iu-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.iu-btn{border:0;border-radius:9px;padding:11px 16px;background:#d8b45a;color:#16263a;font-weight:800;cursor:pointer}.iu-btn.alt{background:#e9eef3}.iu-result{margin-top:15px;padding:15px;background:#f4f7fa;border-radius:10px;white-space:pre-wrap;overflow:auto}@media(max-width:700px){.iu-grid{grid-template-columns:1fr}}</style></head><body><header class="site-header"><div class="container nav"><a class="brand" href="../index.html"><span class="brand-mark">IU</span><span>INDONESIA<br><b>UTILITY TOOLS</b></span></a><nav><a href="../index.html#categories">Kategori</a><a href="../index.html#popular">Populer</a></nav></div></header><main class="tool-page"><div class="container tool-shell"><a class="back" href="../index.html">← Kembali ke semua tools</a><div class="tool-head"><div class="eyebrow">INDONESIA UTILITY TOOLS</div><h1>Merge PDF</h1><p>Gabungkan beberapa file PDF menjadi satu.</p></div><div class="iu-box"><input id="file" type="file" accept="application/pdf,image/*" multiple><div class="iu-actions"><button class="iu-btn" onclick="go()">Proses</button></div><div class="iu-result" id="out">Pilih file.</div></div><script>async function go(){let fs=[...file.files];if(fs.length<2)return out.textContent="Pilih minimal 2 PDF";await libs();let outp=await PDFLib.PDFDocument.create();for(let f of fs){let d=await PDFLib.PDFDocument.load(await f.arrayBuffer()),p=await outp.copyPages(d,d.getPageIndices());p.forEach(x=>outp.addPage(x))}save(await outp.save(),"merged.pdf")};async function libs(){if(window.PDFLib)return;await new Promise(r=>{let s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js";s.onload=r;document.body.appendChild(s)})}function save(b,n){let a=document.createElement("a");a.href=URL.createObjectURL(new Blob([b],{type:"application/pdf"}));a.download=n;a.click();out.textContent="Selesai."}</script></div></main><footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer></body></html>
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Gabungkan beberapa file PDF menjadi satu.">
+<title>Merge PDF — Indonesia Utility Tools</title>
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+.iu-box{background:#fff;border:1px solid #dbe3ea;border-radius:16px;padding:22px;box-shadow:0 7px 18px rgba(15,39,71,.045);margin-top:18px}
+textarea,input,select{width:100%;padding:11px;border:1px solid #ccd6e1;border-radius:9px;box-sizing:border-box}
+textarea{min-height:180px;resize:vertical}
+.iu-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.iu-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.iu-btn{border:0;border-radius:9px;padding:11px 16px;background:#d8b45a;color:#16263a;font-weight:800;cursor:pointer}
+.iu-btn.alt{background:#e9eef3}
+.iu-result{margin-top:15px;padding:15px;background:#f4f7fa;border-radius:10px;white-space:pre-wrap;overflow:auto}
+/* New styles for file list preview & reordering */
+#fileListContainer { margin-top: 15px; display: flex; flex-direction: column; gap: 8px; }
+.file-item { display: flex; align-items: center; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 14px; border-radius: 8px; font-size: 14px; }
+.file-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 10px; }
+.file-item-actions { display: flex; gap: 5px; flex-shrink: 0; }
+.file-item-actions button { background: #e2e8f0; border: none; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-weight: bold; }
+.file-item-actions button:hover:not(:disabled) { background: #cbd5e1; }
+.file-item-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+.file-item-actions button.del { background: #fee2e2; color: #991b1b; }
+@media(max-width:700px){.iu-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="site-header">
+<div class="container nav">
+<a class="brand" href="../index.html"><span class="brand-mark">IU</span><span>INDONESIA<br><b>UTILITY TOOLS</b></span></a>
+<nav><a href="../index.html#categories">Kategori</a><a href="../index.html#popular">Populer</a></nav>
+</div>
+</header>
+<main class="tool-page">
+<div class="container tool-shell">
+<a class="back" href="../index.html">← Kembali ke semua tools</a>
+<div class="tool-head">
+<div class="eyebrow">INDONESIA UTILITY TOOLS</div>
+<h1>Merge PDF</h1>
+<p>Gabungkan beberapa file PDF menjadi satu.</p>
+</div>
+<div class="iu-box">
+<input id="file" type="file" accept="application/pdf,image/*" multiple>
+<!-- Container to display interactive file order list -->
+<div id="fileListContainer"></div>
+<div class="iu-actions"><button class="iu-btn" onclick="go()">Proses</button></div>
+<div class="iu-result" id="out">Pilih file.</div>
+</div>
+<script>
+let selectedFiles = [];
+
+// Handle file selection and append to array
+document.getElementById('file').addEventListener('change', (e) => {
+    let newFiles = Array.from(e.target.files);
+    selectedFiles = selectedFiles.concat(newFiles);
+    document.getElementById('file').value = ''; // Reset input so same files can be chosen again if needed
+    renderFileList();
+});
+
+function renderFileList() {
+    let container = document.getElementById('fileListContainer');
+    container.innerHTML = '';
+
+    if (selectedFiles.length === 0) {
+        out.textContent = "Pilih file.";
+        return;
+    }
+
+    out.textContent = `${selectedFiles.length} file dipilih. Urutkan posisi jika diperlukan.`;
+
+    selectedFiles.forEach((f, index) => {
+        let item = document.createElement('div');
+        item.className = 'file-item';
+        item.innerHTML = `
+            <span><b>${index + 1}.</b> ${f.name}</span>
+            <div class="file-item-actions">
+                <button onclick="moveFile(${index}, -1)" ${index === 0 ? 'disabled' : ''}>⬆️</button>
+                <button onclick="moveFile(${index}, 1)" ${index === selectedFiles.length - 1 ? 'disabled' : ''}>⬇️</button>
+                <button class="del" onclick="removeFile(${index})">✕</button>
+            </div>
+        `;
+        container.appendChild(item);
+    });
+}
+
+function moveFile(index, direction) {
+    let targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= selectedFiles.length) return;
+    
+    // Swap position in array
+    let temp = selectedFiles[index];
+    selectedFiles[index] = selectedFiles[targetIndex];
+    selectedFiles[targetIndex] = temp;
+    
+    renderFileList();
+}
+
+function removeFile(index) {
+    selectedFiles.splice(index, 1);
+    renderFileList();
+}
+
+async function go(){
+    let fs = selectedFiles;
+    if(fs.length < 2) return out.textContent = "Pilih minimal 2 PDF";
+    out.textContent = "Memproses...";
+    await libs();
+    let outp = await PDFLib.PDFDocument.create();
+    for(let f of fs){
+        let d = await PDFLib.PDFDocument.load(await f.arrayBuffer()),
+            p = await outp.copyPages(d, d.getPageIndices());
+        p.forEach(x => outp.addPage(x));
+    }
+    save(await outp.save(), "merged.pdf");
+}
+
+async function libs(){
+    if(window.PDFLib) return;
+    await new Promise(r => {
+        let s = document.createElement("script");
+        s.src = "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js";
+        s.onload = r;
+        document.body.appendChild(s);
+    });
+}
+
+function save(b, n){
+    let a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([b], {type: "application/pdf"}));
+    a.download = n;
+    a.click();
+    out.textContent = "Selesai.";
+}
+</script>
+</div>
+</main>
+<footer class="footer"><div class="container copyright">© 2026 Indonesia Utility Tools.</div></footer>
+</body>
+</html>
